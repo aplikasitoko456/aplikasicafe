@@ -73,6 +73,7 @@ export default function App() {
   const [customerName, setCustomerName] = useState('');
   const [tableNumber, setTableNumber] = useState('');
   const [showItemPopup, setShowItemPopup] = useState<Item | null>(null);
+  const [showDetails, setShowDetails] = useState(false);
   const [showPrintPopup, setShowPrintPopup] = useState(false);
   const [popupQty, setPopupQty] = useState(1);
   const [popupNote, setPopupNote] = useState('');
@@ -448,6 +449,7 @@ export default function App() {
                         onClick={() => {
                           if (order.status === 'processing') {
                             setSelectedOrder(order);
+                            setShowDetails(false);
                           }
                         }}
                         className="bg-white p-4 rounded-2xl border border-cafe-olive/5 shadow-sm flex items-center justify-between cursor-pointer active:scale-[0.98] transition-all"
@@ -911,17 +913,17 @@ export default function App() {
                     <table className="w-full text-left text-[10px]">
                       <thead className="bg-cafe-cream/50 text-cafe-olive/50 font-black uppercase">
                         <tr>
-                          <th className="px-4 py-3">Nama Akun</th>
                           <th className="px-4 py-3">Kategori</th>
-                          <th className="px-4 py-3">Sub</th>
+                          <th className="px-4 py-3">Sub Kategori</th>
+                          <th className="px-4 py-3">Nama Akun</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-cafe-cream">
                         {accounts.map(a => (
                           <tr key={a.id}>
-                            <td className="px-4 py-3 font-bold">{a.account_name}</td>
                             <td className="px-4 py-3 text-cafe-olive/60">{a.category}</td>
                             <td className="px-4 py-3 text-cafe-olive/40 italic">{a.sub_category}</td>
+                            <td className="px-4 py-3 font-bold">{a.account_name}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -1009,6 +1011,32 @@ export default function App() {
                 <p className="text-sm text-cafe-olive/60 mt-1">{selectedOrder.customer_name || 'Pelanggan'}</p>
               </div>
 
+              <AnimatePresence>
+                {showDetails && (
+                  <motion.div 
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="mb-6 overflow-hidden"
+                  >
+                    <div className="bg-cafe-cream/30 rounded-2xl p-4 space-y-2 text-xs">
+                      {JSON.parse(selectedOrder.items_json || '[]').map((item: any, i: number) => (
+                        <div key={i} className="border-b border-cafe-cream/50 last:border-0 pb-2 last:pb-0">
+                          <div className="flex justify-between font-bold">
+                            <span>{item.name} x{item.quantity}</span>
+                          </div>
+                          {item.note && (
+                            <p className="text-[10px] text-cafe-olive/60 italic mt-0.5">
+                              Note: {item.note}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
               <div className="space-y-3">
                 <button 
                   onClick={() => {
@@ -1019,6 +1047,16 @@ export default function App() {
                   className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl font-black text-sm bg-cafe-cream text-cafe-olive hover:bg-cafe-olive hover:text-white transition-all"
                 >
                   <Printer size={18} /> CETAK STRUK
+                </button>
+
+                <button 
+                  onClick={() => setShowDetails(!showDetails)}
+                  className={cn(
+                    "w-full flex items-center justify-center gap-3 py-4 rounded-2xl font-black text-sm transition-all",
+                    showDetails ? "bg-cafe-olive text-white" : "bg-cafe-cream text-cafe-olive hover:bg-cafe-olive hover:text-white"
+                  )}
+                >
+                  <FileText size={18} /> {showDetails ? 'TUTUP RINCIAN' : 'RINCIAN'}
                 </button>
                 
                 <button 
