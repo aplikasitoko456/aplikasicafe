@@ -7,10 +7,17 @@ import dotenv from "dotenv";
 dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-if (!process.env.DATABASE_URL) {
-  console.error("DATABASE_URL is missing! Please set it in the Secrets panel.");
+let sql: any;
+
+function getSql() {
+  if (!sql) {
+    if (!process.env.DATABASE_URL) {
+      console.error("DATABASE_URL is missing! Please set it in the Secrets panel.");
+    }
+    sql = neon(process.env.DATABASE_URL || "");
+  }
+  return sql;
 }
-const sql = neon(process.env.DATABASE_URL || "");
 
 export const app = express();
 app.use(express.json());
@@ -19,37 +26,38 @@ let dbInitialized = false;
 
 async function initDb() {
   if (dbInitialized) return;
+  const sqlClient = getSql();
   try {
-    await sql`CREATE TABLE IF NOT EXISTS items (id SERIAL PRIMARY KEY, name TEXT NOT NULL, category TEXT NOT NULL, price_per_portion NUMERIC NOT NULL)`;
+    await sqlClient`CREATE TABLE IF NOT EXISTS items (id SERIAL PRIMARY KEY, name TEXT NOT NULL, category TEXT NOT NULL, price_per_portion NUMERIC NOT NULL)`;
     // Migration: Ensure items table has price_per_portion
-    try { await sql`ALTER TABLE items ADD COLUMN IF NOT EXISTS price_per_portion NUMERIC`; } catch (e) {}
+    try { await sqlClient`ALTER TABLE items ADD COLUMN IF NOT EXISTS price_per_portion NUMERIC`; } catch (e) {}
 
-    await sql`CREATE TABLE IF NOT EXISTS accounts (id SERIAL PRIMARY KEY, category TEXT NOT NULL, sub_category TEXT NOT NULL, account_name TEXT NOT NULL UNIQUE)`;
+    await sqlClient`CREATE TABLE IF NOT EXISTS accounts (id SERIAL PRIMARY KEY, category TEXT NOT NULL, sub_category TEXT NOT NULL, account_name TEXT NOT NULL UNIQUE)`;
     // Migration: Ensure accounts table has sub_category
-    try { await sql`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS sub_category TEXT`; } catch (e) {}
+    try { await sqlClient`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS sub_category TEXT`; } catch (e) {}
 
-    await sql`CREATE TABLE IF NOT EXISTS journal_entries (id SERIAL PRIMARY KEY, transaction_id TEXT NOT NULL, account_name TEXT NOT NULL, description TEXT, debit NUMERIC DEFAULT 0, credit NUMERIC DEFAULT 0, date TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`;
+    await sqlClient`CREATE TABLE IF NOT EXISTS journal_entries (id SERIAL PRIMARY KEY, transaction_id TEXT NOT NULL, account_name TEXT NOT NULL, description TEXT, debit NUMERIC DEFAULT 0, credit NUMERIC DEFAULT 0, date TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`;
     // Migration: Ensure journal_entries table has transaction_id
-    try { await sql`ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS transaction_id TEXT`; } catch (e) {}
-    await sql`CREATE TABLE IF NOT EXISTS orders (id SERIAL PRIMARY KEY, queue_number TEXT NOT NULL, total_amount NUMERIC NOT NULL, items_json TEXT, customer_name TEXT, table_number TEXT, status TEXT DEFAULT 'processing', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`;
+    try { await sqlClient`ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS transaction_id TEXT`; } catch (e) {}
+    await sqlClient`CREATE TABLE IF NOT EXISTS orders (id SERIAL PRIMARY KEY, queue_number TEXT NOT NULL, total_amount NUMERIC NOT NULL, items_json TEXT, customer_name TEXT, table_number TEXT, status TEXT DEFAULT 'processing', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`;
     // Migration: Ensure all required columns exist (for existing tables from previous versions)
     try {
-      await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS queue_number TEXT`;
-      await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS total_amount NUMERIC`;
-      await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS items_json TEXT`;
-      await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_name TEXT`;
-      await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS table_number TEXT`;
-      await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'processing'`;
+      await sqlClient`ALTER TABLE orders ADD COLUMN IF NOT EXISTS queue_number TEXT`;
+      await sqlClient`ALTER TABLE orders ADD COLUMN IF NOT EXISTS total_amount NUMERIC`;
+      await sqlClient`ALTER TABLE orders ADD COLUMN IF NOT EXISTS items_json TEXT`;
+      await sqlClient`ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_name TEXT`;
+      await sqlClient`ALTER TABLE orders ADD COLUMN IF NOT EXISTS table_number TEXT`;
+      await sqlClient`ALTER TABLE orders ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'processing'`;
     } catch (e) {
       console.log("Migration error for orders table:", e);
     }
-    const count = await sql`SELECT count(*) FROM accounts`;
+    const count = await sqlClient`SELECT count(*) FROM accounts`;
     if (parseInt(count[0].count) === 0) {
-      await sql`INSERT INTO accounts (category, sub_category, account_name) VALUES ('Aset','Aset Lancar','Kas'),('Aset','Aset Lancar','Persediaan Barang'),('Ekuitas','Modal','Modal Pemilik'),('Pendapatan','Pendapatan Usaha','Penjualan'),('Beban','Harga Pokok Penjualan','Persediaan Awal'),('Beban','Harga Pokok Penjualan','Pembelian'),('Beban','Harga Pokok Penjualan','Persediaan Akhir'),('Beban','Beban Operasional','Beban Gaji'),('Beban','Beban Operasional','Beban Listrik & Air'),('Beban','Beban Operasional','Beban ATK')`;
+      await sqlClient`INSERT INTO accounts (category, sub_category, account_name) VALUES ('Aset','Aset Lancar','Kas'),('Aset','Aset Lancar','Persediaan Barang'),('Ekuitas','Modal','Modal Pemilik'),('Pendapatan','Pendapatan Usaha','Penjualan'),('Beban','Harga Pokok Penjualan','Persediaan Awal'),('Beban','Harga Pokok Penjualan','Pembelian'),('Beban','Harga Pokok Penjualan','Persediaan Akhir'),('Beban','Beban Operasional','Beban Gaji'),('Beban','Beban Operasional','Beban Listrik & Air'),('Beban','Beban Operasional','Beban ATK')`;
     }
-    const itemCount = await sql`SELECT count(*) FROM items`;
+    const itemCount = await sqlClient`SELECT count(*) FROM items`;
     if (parseInt(itemCount[0].count) === 0) {
-      await sql`INSERT INTO items (name, category, price_per_portion) VALUES ('Kopi Susu Gula Aren', 'Minuman', 18000), ('Es Teh Manis', 'Minuman', 5000), ('Nasi Goreng Spesial', 'Makanan', 25000), ('Mie Goreng Jawa', 'Makanan', 22000), ('Cireng Rujak', 'Makanan', 15000)`;
+      await sqlClient`INSERT INTO items (name, category, price_per_portion) VALUES ('Kopi Susu Gula Aren', 'Minuman', 18000), ('Es Teh Manis', 'Minuman', 5000), ('Nasi Goreng Spesial', 'Makanan', 25000), ('Mie Goreng Jawa', 'Makanan', 22000), ('Cireng Rujak', 'Makanan', 15000)`;
     }
     console.log("Database initialized");
     dbInitialized = true;
@@ -58,35 +66,35 @@ async function initDb() {
 
 export async function setupApp() {
   await initDb();
-  app.get("/api/items", async (req, res) => res.json(await sql`SELECT * FROM items ORDER BY name ASC`));
+  app.get("/api/items", async (req, res) => res.json(await getSql()`SELECT * FROM items ORDER BY name ASC`));
   app.patch("/api/items/:id", async (req, res) => {
     const { name, category, price_per_portion } = req.body;
     const { id } = req.params;
-    const r = await sql`UPDATE items SET name = ${name}, category = ${category}, price_per_portion = ${price_per_portion} WHERE id = ${id} RETURNING *`;
+    const r = await getSql()`UPDATE items SET name = ${name}, category = ${category}, price_per_portion = ${price_per_portion} WHERE id = ${id} RETURNING *`;
     res.json(r[0]);
   });
   
   app.post("/api/items", async (req, res) => {
     const { name, category, price_per_portion } = req.body;
-    const r = await sql`INSERT INTO items (name, category, price_per_portion) VALUES (${name}, ${category}, ${price_per_portion}) RETURNING *`;
+    const r = await getSql()`INSERT INTO items (name, category, price_per_portion) VALUES (${name}, ${category}, ${price_per_portion}) RETURNING *`;
     res.json(r[0]);
   });
 
-  app.get("/api/accounts", async (req, res) => res.json(await sql`SELECT * FROM accounts ORDER BY category, account_name`));
+  app.get("/api/accounts", async (req, res) => res.json(await getSql()`SELECT * FROM accounts ORDER BY category, account_name`));
   app.post("/api/accounts", async (req, res) => {
     const { category, sub_category, account_name } = req.body;
-    try { res.json((await sql`INSERT INTO accounts (category, sub_category, account_name) VALUES (${category}, ${sub_category}, ${account_name}) RETURNING *`)[0]); }
+    try { res.json((await getSql()`INSERT INTO accounts (category, sub_category, account_name) VALUES (${category}, ${sub_category}, ${account_name}) RETURNING *`)[0]); }
     catch (err) { res.status(400).json({ error: "Akun sudah ada" }); }
   });
 
-  app.get("/api/journal", async (req, res) => res.json(await sql`SELECT * FROM journal_entries ORDER BY date DESC`));
+  app.get("/api/journal", async (req, res) => res.json(await getSql()`SELECT * FROM journal_entries ORDER BY date DESC`));
 
   app.post("/api/sale", async (req, res) => {
     const { cart, date, customer_name, table_number } = req.body; // cart: [{ item_id, quantity, note, price }]
     if (!cart || cart.length === 0) return res.status(400).json({ error: "Cart is empty" });
 
     const today = new Date().toISOString().split('T')[0];
-    const countToday = await sql`SELECT count(*) FROM orders WHERE created_at::date = ${today}::date`;
+    const countToday = await getSql()`SELECT count(*) FROM orders WHERE created_at::date = ${today}::date`;
     const queueNum = (parseInt(countToday[0].count) + 1).toString().padStart(3, '0');
     
     let totalSale = 0;
@@ -95,21 +103,21 @@ export async function setupApp() {
 
     const tid = `T-SALE-${Date.now()}`;
 
-    const order = await sql`INSERT INTO orders (queue_number, total_amount, items_json, customer_name, table_number, status) VALUES (${queueNum}, ${totalSale}, ${JSON.stringify(cart)}, ${customer_name || null}, ${table_number || null}, 'processing') RETURNING *`;
-    await sql`INSERT INTO journal_entries (transaction_id, account_name, description, debit, credit, date) VALUES (${tid}, 'Kas', ${`Penjualan: ${itemDescriptions}`}, ${totalSale}, 0, ${date || new Date()})`;
-    await sql`INSERT INTO journal_entries (transaction_id, account_name, description, debit, credit, date) VALUES (${tid}, 'Penjualan', ${`Penjualan: ${itemDescriptions}`}, 0, ${totalSale}, ${date || new Date()})`;
+    const order = await getSql()`INSERT INTO orders (queue_number, total_amount, items_json, customer_name, table_number, status) VALUES (${queueNum}, ${totalSale}, ${JSON.stringify(cart)}, ${customer_name || null}, ${table_number || null}, 'processing') RETURNING *`;
+    await getSql()`INSERT INTO journal_entries (transaction_id, account_name, description, debit, credit, date) VALUES (${tid}, 'Kas', ${`Penjualan: ${itemDescriptions}`}, ${totalSale}, 0, ${date || new Date()})`;
+    await getSql()`INSERT INTO journal_entries (transaction_id, account_name, description, debit, credit, date) VALUES (${tid}, 'Penjualan', ${`Penjualan: ${itemDescriptions}`}, 0, ${totalSale}, ${date || new Date()})`;
 
     res.json({ success: true, queue_number: queueNum, total: totalSale, order: order[0] });
   });
 
   app.get("/api/orders", async (req, res) => {
-    res.json(await sql`SELECT * FROM orders ORDER BY created_at DESC`);
+    res.json(await getSql()`SELECT * FROM orders ORDER BY created_at DESC`);
   });
 
   app.patch("/api/orders/:id/status", async (req, res) => {
     const { status } = req.body;
     const { id } = req.params;
-    const r = await sql`UPDATE orders SET status = ${status} WHERE id = ${id} RETURNING *`;
+    const r = await getSql()`UPDATE orders SET status = ${status} WHERE id = ${id} RETURNING *`;
     res.json(r[0]);
   });
 
@@ -118,7 +126,7 @@ export async function setupApp() {
     const m = parseInt(month as string);
     const y = parseInt(year as string);
     
-    const turnover = await sql`
+    const turnover = await getSql()`
       SELECT 
         created_at::date as date,
         SUM(total_amount) as total
@@ -134,13 +142,13 @@ export async function setupApp() {
   app.post("/api/expense", async (req, res) => {
     const { debit_account, credit_account, amount, description, date } = req.body;
     const tid = `T-EXP-${Date.now()}`;
-    await sql`INSERT INTO journal_entries (transaction_id, account_name, description, debit, credit, date) VALUES (${tid}, ${debit_account}, ${description}, ${amount}, 0, ${date || new Date()})`;
-    await sql`INSERT INTO journal_entries (transaction_id, account_name, description, debit, credit, date) VALUES (${tid}, ${credit_account}, ${description}, 0, ${amount}, ${date || new Date()})`;
+    await getSql()`INSERT INTO journal_entries (transaction_id, account_name, description, debit, credit, date) VALUES (${tid}, ${debit_account}, ${description}, ${amount}, 0, ${date || new Date()})`;
+    await getSql()`INSERT INTO journal_entries (transaction_id, account_name, description, debit, credit, date) VALUES (${tid}, ${credit_account}, ${description}, 0, ${amount}, ${date || new Date()})`;
     res.json({ success: true });
   });
 
   app.get("/api/reports/profit-loss", async (req, res) => {
-    const entries = await sql`SELECT * FROM journal_entries`, accountsList = await sql`SELECT * FROM accounts`;
+    const entries = await getSql()`SELECT * FROM journal_entries`, accountsList = await getSql()`SELECT * FROM accounts`;
     const getBal = (n: string) => entries.filter(j => j.account_name === n).reduce((s, j) => s + (parseFloat(j.debit) - parseFloat(j.credit)), 0);
     const penjualan = Math.abs(getBal("Penjualan"));
     const persediaanAwal = getBal("Persediaan Awal");
@@ -154,7 +162,7 @@ export async function setupApp() {
   });
 
   app.get("/api/reports/balance-sheet", async (req, res) => {
-    const entries = await sql`SELECT * FROM journal_entries`, accountsList = await sql`SELECT * FROM accounts`;
+    const entries = await getSql()`SELECT * FROM journal_entries`, accountsList = await getSql()`SELECT * FROM accounts`;
     const getBal = (n: string) => entries.filter(j => j.account_name === n).reduce((s, j) => s + (parseFloat(j.debit) - parseFloat(j.credit)), 0);
     const penjualan = Math.abs(getBal("Penjualan"));
     const persediaanAwal = getBal("Persediaan Awal");
@@ -193,14 +201,14 @@ export async function setupApp() {
     const date = new Date().toISOString();
     
     for (const entry of entries) {
-      await sql`INSERT INTO journal_entries (transaction_id, account_name, description, debit, credit, date) VALUES (${transactionId}, ${entry.account_name}, ${description}, ${entry.debit}, ${entry.credit}, ${date})`;
+      await getSql()`INSERT INTO journal_entries (transaction_id, account_name, description, debit, credit, date) VALUES (${transactionId}, ${entry.account_name}, ${description}, ${entry.debit}, ${entry.credit}, ${date})`;
     }
     res.json({ success: true });
   });
 
   app.delete("/api/journal/:id", async (req, res) => {
     if (req.body.password !== "admin123") return res.status(403).json({ error: "Password salah" });
-    await sql`DELETE FROM journal_entries WHERE id = ${req.params.id}`;
+    await getSql()`DELETE FROM journal_entries WHERE id = ${req.params.id}`;
     res.json({ success: true });
   });
 

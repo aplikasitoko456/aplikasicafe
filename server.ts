@@ -1,4 +1,4 @@
-import app, { setupApp } from "./app.ts";
+import app, { setupApp } from "./api/app.js";
 
 const PORT = 3000;
 
