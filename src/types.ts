@@ -57,4 +57,6 @@ export interface Asset {
   kelompok: string;
   purchase_date: string;
   acquisition_cost: number;
+  jenis: string;
+  payment_method?: string;
 }

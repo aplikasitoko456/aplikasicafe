@@ -52,6 +52,16 @@ const formatDate = (dateStr: string) =>
     year: 'numeric'
   });
 
+const FormatCurrencyReport = ({ amount, className, bold = true }: { amount: number, className?: string, bold?: boolean }) => {
+  const isNegative = amount < 0;
+  const formatted = formatCurrency(Math.abs(amount));
+  return (
+    <span className={cn(className, isNegative && "text-red-600", bold && "font-bold")}>
+      {isNegative ? `(${formatted})` : formatted}
+    </span>
+  );
+};
+
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'kasir' | 'antrian' | 'kinerja' | 'laporan' | 'admin'>('kasir');
@@ -67,6 +77,15 @@ export default function App() {
   const [plReport, setPlReport] = useState<ProfitLossReport | null>(null);
   const [bsReport, setBsReport] = useState<BalanceSheetReport | null>(null);
   const [loading, setLoading] = useState(true);
+  const [reportYear, setReportYear] = useState(new Date().getFullYear());
+  
+  // Pagination & Filters
+  const [jurnalPage, setJurnalPage] = useState(1);
+  const [jurnalDateFilter, setJurnalDateFilter] = useState('');
+  const [asetPage, setAsetPage] = useState(1);
+  const [asetSearch, setAsetSearch] = useState('');
+  const [asetFilterYear, setAsetFilterYear] = useState(new Date().getFullYear());
+
   const [lastOrder, setLastOrder] = useState<any | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
 
@@ -94,17 +113,22 @@ export default function App() {
   const [newItem, setNewItem] = useState({ name: '', category: 'Makanan', price: 0 });
   const [editingItem, setEditingItem] = useState<Item | null>(null);
   const [newAcc, setNewAcc] = useState({ category: 'Beban', sub_category: 'Beban Operasional', name: '' });
-  const [newAsset, setNewAsset] = useState({ name: '', kelompok: '1', purchase_date: new Date().toISOString().split('T')[0], acquisition_cost: 0 });
+  const [newAsset, setNewAsset] = useState({ 
+    name: '', 
+    kelompok: '1', 
+    purchase_date: new Date().toISOString().split('T')[0], 
+    acquisition_cost: 0,
+    jenis: 'Inventaris',
+    payment_method: 'Kas'
+  });
 
   const fetchData = async () => {
     try {
-      const [iR, jR, aR, asR, plR, bsR, oR] = await Promise.all([
+      const [iR, jR, aR, asR, oR] = await Promise.all([
         fetch('/api/items'), 
         fetch('/api/journal'), 
         fetch('/api/accounts'), 
         fetch('/api/assets'),
-        fetch('/api/reports/profit-loss'), 
-        fetch('/api/reports/balance-sheet'),
         fetch('/api/orders')
       ]);
       
@@ -112,13 +136,25 @@ export default function App() {
       setJournal(await jR.json()); 
       setAccounts(await aR.json()); 
       setAssets(await asR.json());
-      setPlReport(await plR.json()); 
-      setBsReport(await bsR.json());
       setOrders(await oR.json());
+      fetchReports();
     } catch (err) { 
       console.error(err); 
     } finally { 
       setLoading(false); 
+    }
+  };
+
+  const fetchReports = async () => {
+    try {
+      const [plR, bsR] = await Promise.all([
+        fetch(`/api/reports/profit-loss?year=${reportYear}`), 
+        fetch(`/api/reports/balance-sheet?year=${reportYear}`)
+      ]);
+      setPlReport(await plR.json()); 
+      setBsReport(await bsR.json());
+    } catch (err) {
+      console.error(err);
     }
   };
 
@@ -133,6 +169,7 @@ export default function App() {
 
   useEffect(() => { fetchData(); }, []);
   useEffect(() => { fetchTurnover(); }, [currentMonth, currentYear]);
+  useEffect(() => { fetchReports(); }, [reportYear]);
 
   const handleAddToCart = () => {
     if (!showItemPopup) return;
@@ -268,7 +305,14 @@ export default function App() {
       body: JSON.stringify(newAsset) 
     });
     if (res.ok) { 
-      setNewAsset({ name: '', kelompok: '1', purchase_date: new Date().toISOString().split('T')[0], acquisition_cost: 0 }); 
+      setNewAsset({ 
+        name: '', 
+        kelompok: '1', 
+        purchase_date: new Date().toISOString().split('T')[0], 
+        acquisition_cost: 0,
+        jenis: 'Inventaris',
+        payment_method: 'Kas'
+      }); 
       fetchData(); 
     } else {
       alert("Gagal menambahkan aset");
@@ -597,57 +641,124 @@ export default function App() {
                 ))}
               </div>
 
+              {(laporanSubTab === 'labarugi' || laporanSubTab === 'neraca') && (
+                <div className="flex items-center gap-3 bg-white p-3 rounded-2xl border border-cafe-olive/5 shadow-sm">
+                  <span className="text-[10px] font-black uppercase text-cafe-olive/40">Pilih Tahun:</span>
+                  <select 
+                    value={reportYear} 
+                    onChange={e => setReportYear(parseInt(e.target.value))}
+                    className="bg-cafe-cream/20 border-none rounded-lg px-3 py-1 text-xs font-bold outline-none focus:ring-1 focus:ring-cafe-olive"
+                  >
+                    {Array.from({ length: new Date().getFullYear() - 2025 + 1 }, (_, i) => 2025 + i).map(y => (
+                      <option key={y} value={y}>{y}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               {laporanSubTab === 'jurnal' && (
-                <div className="bg-white rounded-2xl border border-cafe-olive/5 shadow-sm overflow-hidden">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-[10px]">
-                      <thead className="bg-cafe-cream/50 text-cafe-olive/50 font-black uppercase">
-                        <tr>
-                          <th className="px-4 py-3">Tgl</th>
-                          <th className="px-4 py-3">Akun</th>
-                          <th className="px-4 py-3 text-right">Debit</th>
-                          <th className="px-4 py-3 text-right">Kredit</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-cafe-cream">
-                        {journal.map(j => (
-                          <tr key={j.id}>
-                            <td className="px-4 py-3 whitespace-nowrap">{new Date(j.date).toLocaleDateString('id-ID', {day:'2-digit', month:'2-digit'})}</td>
-                            <td className="px-4 py-3 font-bold">{j.account_name}</td>
-                            <td className="px-4 py-3 text-right text-green-600">{j.debit > 0 ? formatCurrency(j.debit) : '-'}</td>
-                            <td className="px-4 py-3 text-right text-red-600">{j.credit > 0 ? formatCurrency(j.credit) : '-'}</td>
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3 bg-white p-3 rounded-2xl border border-cafe-olive/5 shadow-sm">
+                    <span className="text-[10px] font-black uppercase text-cafe-olive/40">Filter Tanggal:</span>
+                    <input 
+                      type="date" 
+                      value={jurnalDateFilter} 
+                      onChange={e => {
+                        setJurnalDateFilter(e.target.value);
+                        setJurnalPage(1);
+                      }}
+                      className="bg-cafe-cream/20 border-none rounded-lg px-3 py-1 text-xs font-bold outline-none focus:ring-1 focus:ring-cafe-olive"
+                    />
+                    {jurnalDateFilter && (
+                      <button onClick={() => setJurnalDateFilter('')} className="text-red-500 hover:bg-red-50 p-1 rounded-lg transition-colors">
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+                  
+                  <div className="bg-white rounded-2xl border border-cafe-olive/5 shadow-sm overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-[10px]">
+                        <thead className="bg-cafe-cream/50 text-cafe-olive/50 font-black uppercase">
+                          <tr>
+                            <th className="px-4 py-3">Tgl</th>
+                            <th className="px-4 py-3">Akun</th>
+                            <th className="px-4 py-3 text-right">Debit</th>
+                            <th className="px-4 py-3 text-right">Kredit</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody className="divide-y divide-cafe-cream">
+                          {(() => {
+                            const filtered = journal.filter(j => !jurnalDateFilter || j.date.startsWith(jurnalDateFilter));
+                            const start = (jurnalPage - 1) * 10;
+                            const paginated = filtered.slice(start, start + 10);
+                            
+                            if (paginated.length === 0) return <tr><td colSpan={4} className="px-4 py-10 text-center text-cafe-olive/40 italic">Tidak ada data</td></tr>;
+                            
+                            return paginated.map(j => (
+                              <tr key={j.id}>
+                                <td className="px-4 py-3 whitespace-nowrap">{new Date(j.date).toLocaleDateString('id-ID', {day:'2-digit', month:'2-digit'})}</td>
+                                <td className="px-4 py-3 font-bold">{j.account_name}</td>
+                                <td className="px-4 py-3 text-right text-green-600">{j.debit > 0 ? formatCurrency(j.debit) : '-'}</td>
+                                <td className="px-4 py-3 text-right text-red-600">{j.credit > 0 ? formatCurrency(j.credit) : '-'}</td>
+                              </tr>
+                            ));
+                          })()}
+                        </tbody>
+                      </table>
+                    </div>
+                    {/* Pagination Controls */}
+                    <div className="p-3 border-t border-cafe-cream flex justify-between items-center">
+                      <button 
+                        disabled={jurnalPage === 1}
+                        onClick={() => setJurnalPage(p => p - 1)}
+                        className="p-1 disabled:opacity-30"
+                      >
+                        <ChevronLeft size={16} />
+                      </button>
+                      <span className="text-[10px] font-black text-cafe-olive/50">Halaman {jurnalPage}</span>
+                      <button 
+                        disabled={jurnalPage * 10 >= journal.filter(j => !jurnalDateFilter || j.date.startsWith(jurnalDateFilter)).length}
+                        onClick={() => setJurnalPage(p => p + 1)}
+                        className="p-1 disabled:opacity-30"
+                      >
+                        <ChevronRight size={16} />
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
 
               {laporanSubTab === 'labarugi' && plReport && (
                 <div className="bg-white p-6 rounded-2xl border border-cafe-olive/5 shadow-sm space-y-4">
-                  <div className="text-center border-b pb-4"><h2 className="font-serif font-bold text-lg">Laba Rugi</h2></div>
-                  <div className="flex justify-between text-sm font-bold"><span>Penjualan</span><span>{formatCurrency(plReport.penjualan)}</span></div>
-                  <div className="space-y-1 pl-2 border-l-2 border-cafe-olive/20">
-                    <div className="flex justify-between text-xs text-cafe-olive/60 italic"><span>Persediaan Awal</span><span>{formatCurrency(plReport.persediaanAwal)}</span></div>
-                    <div className="flex justify-between text-xs text-cafe-olive/60 italic"><span>Pembelian</span><span>{formatCurrency(plReport.pembelian)}</span></div>
-                    <div className="flex justify-between text-xs text-cafe-olive/60 italic"><span>Persediaan Akhir</span><span>({formatCurrency(plReport.persediaanAkhir)})</span></div>
-                    <div className="flex justify-between text-xs font-bold text-cafe-olive/80"><span>HPP (Manual)</span><span>{formatCurrency(plReport.hpp)}</span></div>
+                  <div className="text-center border-b pb-4">
+                    <h2 className="font-serif font-bold text-lg">Laba Rugi</h2>
+                    <p className="text-[10px] text-cafe-olive/60 font-bold">1 Januari s.d. 31 Desember {reportYear}</p>
                   </div>
-                  <div className="flex justify-between font-black bg-cafe-cream/30 p-2 rounded-lg"><span>Laba Kotor</span><span>{formatCurrency(plReport.labaKotor)}</span></div>
+                  <div className="flex justify-between text-sm font-bold"><span>Penjualan</span><FormatCurrencyReport amount={plReport.penjualan} /></div>
+                  <div className="space-y-1 pl-2 border-l-2 border-cafe-olive/20">
+                    <div className="flex justify-between text-xs text-cafe-olive/60 italic"><span>Persediaan Awal</span><FormatCurrencyReport amount={plReport.persediaanAwal} bold={false} /></div>
+                    <div className="flex justify-between text-xs text-cafe-olive/60 italic"><span>Pembelian</span><FormatCurrencyReport amount={plReport.pembelian} bold={false} /></div>
+                    <div className="flex justify-between text-xs text-cafe-olive/60 italic"><span>Persediaan Akhir</span><FormatCurrencyReport amount={-plReport.persediaanAkhir} bold={false} /></div>
+                    <div className="flex justify-between text-xs font-bold text-cafe-olive/80"><span>HPP (Manual)</span><FormatCurrencyReport amount={plReport.hpp} /></div>
+                  </div>
+                  <div className="flex justify-between font-black bg-cafe-cream/30 p-2 rounded-lg"><span>Laba Kotor</span><FormatCurrencyReport amount={plReport.labaKotor} /></div>
                   <div className="space-y-1">
                     <p className="text-[10px] font-black uppercase text-cafe-olive/40">Beban Operasional</p>
                     {plReport.bebanOperasional.map((b, i) => (
-                      <div key={i} className="flex justify-between text-xs"><span>{b.name}</span><span>{formatCurrency(b.amount)}</span></div>
+                      <div key={i} className="flex justify-between text-xs"><span>{b.name}</span><FormatCurrencyReport amount={b.amount} bold={false} /></div>
                     ))}
                   </div>
-                  <div className="flex justify-between font-black bg-cafe-accent text-white p-3 rounded-xl"><span>Laba Bersih</span><span>{formatCurrency(plReport.labaBersih)}</span></div>
+                  <div className="flex justify-between font-black bg-cafe-accent text-white p-3 rounded-xl"><span>Laba Bersih</span><FormatCurrencyReport amount={plReport.labaBersih} /></div>
                 </div>
               )}
 
               {laporanSubTab === 'neraca' && bsReport && (
                 <div className="bg-white p-6 rounded-2xl border border-cafe-olive/5 shadow-sm space-y-6">
-                  <div className="text-center border-b pb-4"><h2 className="font-serif font-bold text-lg">Neraca</h2></div>
+                  <div className="text-center border-b pb-4">
+                    <h2 className="font-serif font-bold text-lg">Neraca</h2>
+                    <p className="text-[10px] text-cafe-olive/60 font-bold">1 Januari s.d. 31 Desember {reportYear}</p>
+                  </div>
                   <div className="space-y-4">
                     <h4 className="text-[10px] font-black uppercase text-cafe-olive border-b pb-1">Aktiva</h4>
                     {Object.entries(bsReport.asetGrouped || {}).map(([sub, assets]: [string, any]) => (
@@ -656,12 +767,12 @@ export default function App() {
                         {assets.map((a: any, i: number) => (
                           <div key={i} className="flex justify-between text-xs pl-4">
                             <span>{a.name}</span>
-                            <span className="font-bold">{formatCurrency(a.amount)}</span>
+                            <FormatCurrencyReport amount={a.amount} />
                           </div>
                         ))}
                       </div>
                     ))}
-                    <div className="flex justify-between font-black pt-2 border-t"><span>Total Aktiva</span><span>{formatCurrency(bsReport.totalAset)}</span></div>
+                    <div className="flex justify-between font-black pt-2 border-t"><span>Total Aktiva</span><FormatCurrencyReport amount={bsReport.totalAset} /></div>
                   </div>
                   <div className="space-y-3">
                     <h4 className="text-[10px] font-black uppercase text-blue-600 border-b pb-1">Pasiva</h4>
@@ -671,7 +782,7 @@ export default function App() {
                         {liabs.map((k: any, i: number) => (
                           <div key={i} className="flex justify-between text-xs pl-4">
                             <span>{k.name}</span>
-                            <span className="font-bold">{formatCurrency(k.amount)}</span>
+                            <FormatCurrencyReport amount={k.amount} />
                           </div>
                         ))}
                       </div>
@@ -681,11 +792,11 @@ export default function App() {
                       {bsReport.ekuitas.map((e, i) => (
                         <div key={i} className="flex justify-between text-xs pl-4">
                           <span>{e.name}</span>
-                          <span className="font-bold">{formatCurrency(e.amount)}</span>
+                          <FormatCurrencyReport amount={e.amount} />
                         </div>
                       ))}
                     </div>
-                    <div className="flex justify-between font-black pt-2 border-t"><span>Total Pasiva</span><span>{formatCurrency(bsReport.totalPasiva)}</span></div>
+                    <div className="flex justify-between font-black pt-2 border-t"><span>Total Pasiva</span><FormatCurrencyReport amount={bsReport.totalPasiva} /></div>
                   </div>
                 </div>
               )}
@@ -933,14 +1044,15 @@ export default function App() {
               {adminSubTab === 'aset' && (
                 <div className="space-y-6">
                   <div className="bg-white p-6 rounded-2xl border border-cafe-olive/5 shadow-sm space-y-4">
+                    <h3 className="text-base font-serif font-bold">Tambah Aset Baru</h3>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
                         <label className="text-[8px] font-black uppercase text-cafe-olive/50">Nama Aset</label>
-                        <input value={newAsset.name} onChange={e => setNewAsset({...newAsset, name: e.target.value})} placeholder="Nama Aset" className="w-full border rounded-xl px-4 py-2 text-xs bg-cafe-cream/20" />
+                        <input value={newAsset.name} onChange={e => setNewAsset({...newAsset, name: e.target.value})} placeholder="Nama Aset" className="w-full border rounded-xl px-4 py-2 text-xs bg-cafe-cream/20 outline-none focus:ring-1 focus:ring-cafe-olive" />
                       </div>
                       <div className="space-y-1">
                         <label className="text-[8px] font-black uppercase text-cafe-olive/50">Kelompok</label>
-                        <select value={newAsset.kelompok} onChange={e => setNewAsset({...newAsset, kelompok: e.target.value})} className="w-full border rounded-xl px-4 py-2 text-xs bg-cafe-cream/20">
+                        <select value={newAsset.kelompok} onChange={e => setNewAsset({...newAsset, kelompok: e.target.value})} className="w-full border rounded-xl px-4 py-2 text-xs bg-cafe-cream/20 outline-none focus:ring-1 focus:ring-cafe-olive">
                           <option value="1">Kelompok 1 (4 Thn)</option>
                           <option value="2">Kelompok 2 (8 Thn)</option>
                           <option value="3">Kelompok 3 (16 Thn)</option>
@@ -952,22 +1064,72 @@ export default function App() {
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
+                        <label className="text-[8px] font-black uppercase text-cafe-olive/50">Jenis Aset</label>
+                        <select value={newAsset.jenis} onChange={e => setNewAsset({...newAsset, jenis: e.target.value})} className="w-full border rounded-xl px-4 py-2 text-xs bg-cafe-cream/20 outline-none focus:ring-1 focus:ring-cafe-olive">
+                          <option value="Tanah dan/atau bangunan">Tanah dan/atau bangunan</option>
+                          <option value="Kendaraan">Kendaraan</option>
+                          <option value="Inventaris">Inventaris</option>
+                        </select>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[8px] font-black uppercase text-cafe-olive/50">Metode Bayar</label>
+                        <select value={newAsset.payment_method} onChange={e => setNewAsset({...newAsset, payment_method: e.target.value})} className="w-full border rounded-xl px-4 py-2 text-xs bg-cafe-cream/20 outline-none focus:ring-1 focus:ring-cafe-olive">
+                          <option value="Kas">Kas</option>
+                          <option value="Bank">Bank</option>
+                          <option value="Utang Lancar Lainnya">Utang Lancar Lainnya</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
                         <label className="text-[8px] font-black uppercase text-cafe-olive/50">Tanggal Beli</label>
-                        <input type="date" value={newAsset.purchase_date} onChange={e => setNewAsset({...newAsset, purchase_date: e.target.value})} className="w-full border rounded-xl px-4 py-2 text-xs bg-cafe-cream/20" />
+                        <input type="date" value={newAsset.purchase_date} onChange={e => setNewAsset({...newAsset, purchase_date: e.target.value})} className="w-full border rounded-xl px-4 py-2 text-xs bg-cafe-cream/20 outline-none focus:ring-1 focus:ring-cafe-olive" />
                       </div>
                       <div className="space-y-1">
                         <label className="text-[8px] font-black uppercase text-cafe-olive/50">Harga Perolehan</label>
                         <CurrencyInput value={newAsset.acquisition_cost} onChange={(v:number) => setNewAsset({...newAsset, acquisition_cost: v})} placeholder="Harga Perolehan" className="w-full bg-cafe-cream/20 py-2 text-xs" />
                       </div>
                     </div>
-                    <button onClick={handleAddAsset} className="w-full bg-cafe-olive text-white py-4 rounded-xl font-black text-sm">TAMBAH ASET</button>
+                    <button onClick={handleAddAsset} className="w-full bg-cafe-olive text-white py-4 rounded-xl font-black text-sm hover:bg-cafe-ink transition-all shadow-lg shadow-cafe-olive/20">TAMBAH ASET</button>
                   </div>
+
                   <div className="bg-white rounded-2xl border border-cafe-olive/5 shadow-sm overflow-hidden">
+                    <div className="p-4 border-b border-cafe-cream bg-cafe-cream/10 flex justify-between items-center gap-4">
+                      <div className="flex items-center gap-3">
+                        <h4 className="text-[10px] font-black uppercase text-cafe-olive whitespace-nowrap">Daftar Aset</h4>
+                        <select 
+                          value={asetFilterYear}
+                          onChange={e => {
+                            setAsetFilterYear(parseInt(e.target.value));
+                            setAsetPage(1);
+                          }}
+                          className="px-2 py-1 border rounded-lg text-[10px] bg-white outline-none focus:ring-1 focus:ring-cafe-olive font-bold"
+                        >
+                          {Array.from({ length: new Date().getFullYear() - 2025 + 1 }, (_, i) => 2025 + i).map(y => (
+                            <option key={y} value={y}>{y}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="relative flex-1 max-w-[200px]">
+                        <input 
+                          type="text" 
+                          placeholder="Cari aset..." 
+                          value={asetSearch}
+                          onChange={e => {
+                            setAsetSearch(e.target.value);
+                            setAsetPage(1);
+                          }}
+                          className="w-full pl-8 pr-3 py-1 border rounded-lg text-[10px] bg-white outline-none focus:ring-1 focus:ring-cafe-olive"
+                        />
+                        <LayoutDashboard size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-cafe-olive/40" />
+                      </div>
+                    </div>
                     <div className="overflow-x-auto">
                       <table className="w-full text-left text-[8px]">
                         <thead className="bg-cafe-cream/50 text-cafe-olive/50 font-black uppercase">
                           <tr>
                             <th className="px-3 py-3">Aset</th>
+                            <th className="px-3 py-3">Jenis</th>
                             <th className="px-3 py-3">Klp</th>
                             <th className="px-3 py-3">Tgl Beli</th>
                             <th className="px-3 py-3 text-right">Perolehan</th>
@@ -979,50 +1141,141 @@ export default function App() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-cafe-cream">
-                          {assets.map(a => {
-                            const rates: { [key: string]: number } = { '1': 0.25, '2': 0.125, '3': 0.0625, '4': 0.05, 'Bangunan Permanen': 0.05, 'Bangunan Tidak Permanen': 0.10 };
-                            const rate = rates[a.kelompok] || 0;
-                            const cost = parseFloat(a.acquisition_cost as any);
-                            const pDate = new Date(a.purchase_date);
-                            const now = new Date();
-                            const currentYear = now.getFullYear();
-                            const currentMonth = now.getMonth() + 1;
-                            
-                            const monthlyDep = (cost * rate) / 12;
-                            
-                            // Months before this year
-                            const monthsBeforeThisYear = Math.max(0, (currentYear - pDate.getFullYear()) * 12 - pDate.getMonth());
-                            const accDepStartYear = Math.min(cost, monthlyDep * monthsBeforeThisYear);
-                            const bookValueStartYear = cost - accDepStartYear;
-                            
-                            // Months this year
-                            const monthsThisYear = pDate.getFullYear() < currentYear ? currentMonth : Math.max(0, currentMonth - pDate.getMonth());
-                            const depThisYear = Math.min(bookValueStartYear, monthlyDep * monthsThisYear);
-                            
-                            const bookValueEndYear = bookValueStartYear - depThisYear;
-                            const accDepTotal = accDepStartYear + depThisYear;
-
-                            return (
-                              <tr key={a.id}>
-                                <td className="px-3 py-3 font-bold">{a.name}</td>
-                                <td className="px-3 py-3">{a.kelompok}</td>
-                                <td className="px-3 py-3 whitespace-nowrap">{new Date(a.purchase_date).toLocaleDateString('id-ID')}</td>
-                                <td className="px-3 py-3 text-right">{formatCurrency(cost)}</td>
-                                <td className="px-3 py-3 text-right">{formatCurrency(bookValueStartYear)}</td>
-                                <td className="px-3 py-3 text-right text-red-500">{formatCurrency(depThisYear)}</td>
-                                <td className="px-3 py-3 text-right font-bold">{formatCurrency(bookValueEndYear)}</td>
-                                <td className="px-3 py-3 text-right text-red-600">{formatCurrency(accDepTotal)}</td>
-                                <td className="px-3 py-3 text-center">
-                                  <button onClick={() => handleDeleteAsset(a.id)} className="text-red-500 hover:text-red-700">
-                                    <Trash2 size={12} />
-                                  </button>
-                                </td>
-                              </tr>
+                          {(() => {
+                            const filtered = assets.filter(a => 
+                              a.name.toLowerCase().includes(asetSearch.toLowerCase()) &&
+                              new Date(a.purchase_date).getFullYear() <= asetFilterYear
                             );
-                          })}
+                            const start = (asetPage - 1) * 10;
+                            const paginated = filtered.slice(start, start + 10);
+                            
+                            if (paginated.length === 0) return <tr><td colSpan={10} className="px-3 py-10 text-center text-cafe-olive/40 italic">Tidak ada aset</td></tr>;
+                            
+                            return paginated.map(a => {
+                              const rates: { [key: string]: number } = { '1': 0.25, '2': 0.125, '3': 0.0625, '4': 0.05, 'Bangunan Permanen': 0.05, 'Bangunan Tidak Permanen': 0.10 };
+                              const rate = rates[a.kelompok] || 0;
+                              const cost = parseFloat(a.acquisition_cost as any);
+                              const pDate = new Date(a.purchase_date);
+                              
+                              const currentYear = asetFilterYear;
+                              const now = new Date();
+                              const currentMonth = currentYear < now.getFullYear() ? 12 : (currentYear === now.getFullYear() ? (now.getMonth() + 1) : 12);
+                              
+                              const monthlyDep = (cost * rate) / 12;
+                              
+                              // Months before this year
+                              const monthsBeforeThisYear = Math.max(0, (currentYear - pDate.getFullYear()) * 12 - pDate.getMonth());
+                              const accDepStartYear = Math.min(cost, monthlyDep * monthsBeforeThisYear);
+                              const bookValueStartYear = cost - accDepStartYear;
+                              
+                              // Months this year
+                              const monthsThisYear = pDate.getFullYear() < currentYear ? currentMonth : Math.max(0, currentMonth - pDate.getMonth());
+                              const depThisYear = Math.min(bookValueStartYear, monthlyDep * monthsThisYear);
+                              
+                              const bookValueEndYear = bookValueStartYear - depThisYear;
+                              const accDepTotal = accDepStartYear + depThisYear;
+
+                              return (
+                                <tr key={a.id} className="hover:bg-cafe-cream/5">
+                                  <td className="px-3 py-3 font-bold">{a.name}</td>
+                                  <td className="px-3 py-3">{a.jenis}</td>
+                                  <td className="px-3 py-3">{a.kelompok}</td>
+                                  <td className="px-3 py-3 whitespace-nowrap">{formatDate(a.purchase_date)}</td>
+                                  <td className="px-3 py-3 text-right">{formatCurrency(cost)}</td>
+                                  <td className="px-3 py-3 text-right">{formatCurrency(bookValueStartYear)}</td>
+                                  <td className="px-3 py-3 text-right text-red-500">{formatCurrency(depThisYear)}</td>
+                                  <td className="px-3 py-3 text-right font-bold">{formatCurrency(bookValueEndYear)}</td>
+                                  <td className="px-3 py-3 text-right text-red-600">{formatCurrency(accDepTotal)}</td>
+                                  <td className="px-3 py-3 text-center">
+                                    <button onClick={() => handleDeleteAsset(a.id)} className="text-red-500 hover:bg-red-50 p-1 rounded-lg transition-colors">
+                                      <Trash2 size={12} />
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            });
+                          })()}
                         </tbody>
                       </table>
                     </div>
+                    {/* Pagination Controls */}
+                    <div className="p-3 border-t border-cafe-cream flex justify-between items-center">
+                      <button 
+                        disabled={asetPage === 1}
+                        onClick={() => setAsetPage(p => p - 1)}
+                        className="p-1 disabled:opacity-30"
+                      >
+                        <ChevronLeft size={16} />
+                      </button>
+                      <span className="text-[10px] font-black text-cafe-olive/50">Halaman {asetPage}</span>
+                      <button 
+                        disabled={asetPage * 10 >= assets.filter(a => 
+                          a.name.toLowerCase().includes(asetSearch.toLowerCase()) &&
+                          new Date(a.purchase_date).getFullYear() <= asetFilterYear
+                        ).length}
+                        onClick={() => setAsetPage(p => p + 1)}
+                        className="p-1 disabled:opacity-30"
+                      >
+                        <ChevronRight size={16} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Contoh Penjurnalan Penyusutan */}
+                  <div className="bg-white p-6 rounded-2xl border border-cafe-olive/5 shadow-sm space-y-4">
+                    <h4 className="text-[10px] font-black uppercase text-cafe-olive border-b pb-1">Contoh Penjurnalan Penyusutan</h4>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-[9px] border-collapse">
+                        <thead className="bg-cafe-cream/50 text-cafe-olive/50 font-black uppercase">
+                          <tr>
+                            <th className="px-3 py-2 border border-cafe-cream">Tanggal</th>
+                            <th className="px-3 py-2 border border-cafe-cream">Debit</th>
+                            <th className="px-3 py-2 border border-cafe-cream">Kredit</th>
+                            <th className="px-3 py-2 border border-cafe-cream text-right">Nominal</th>
+                            <th className="px-3 py-2 border border-cafe-cream">Keterangan</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(() => {
+                            const now = new Date();
+                            const currentYear = asetFilterYear;
+                            const currentMonth = currentYear < now.getFullYear() ? 12 : (currentYear === now.getFullYear() ? (now.getMonth() + 1) : 12);
+                            
+                            let totalDepreciationThisYear = 0;
+                            const rates: { [key: string]: number } = { '1': 0.25, '2': 0.125, '3': 0.0625, '4': 0.05, 'Bangunan Permanen': 0.05, 'Bangunan Tidak Permanen': 0.10 };
+                            
+                            assets.filter((a: any) => new Date(a.purchase_date).getFullYear() <= asetFilterYear).forEach((a: any) => {
+                              const pDate = new Date(a.purchase_date);
+                              const rate = rates[a.kelompok] || 0;
+                              const cost = parseFloat(a.acquisition_cost as any);
+                              const monthlyDep = (cost * rate) / 12;
+                              
+                              // Months before this year
+                              const monthsBeforeThisYear = Math.max(0, (currentYear - pDate.getFullYear()) * 12 - pDate.getMonth());
+                              const accDepStartYear = Math.min(cost, monthlyDep * monthsBeforeThisYear);
+                              const bookValueStartYear = cost - accDepStartYear;
+                              
+                              // Months this year
+                              const monthsThisYear = pDate.getFullYear() < currentYear ? currentMonth : Math.max(0, currentMonth - pDate.getMonth());
+                              const depThisYear = Math.min(bookValueStartYear, monthlyDep * monthsThisYear);
+                              
+                              totalDepreciationThisYear += depThisYear;
+                            });
+
+                            return (
+                              <tr className="hover:bg-cafe-cream/10">
+                                <td className="px-3 py-2 border border-cafe-cream whitespace-nowrap">31 Des {currentYear}</td>
+                                <td className="px-3 py-2 border border-cafe-cream font-bold">Biaya Penyusutan</td>
+                                <td className="px-3 py-2 border border-cafe-cream font-bold">Akumulasi Penyusutan</td>
+                                <td className="px-3 py-2 border border-cafe-cream text-right font-black text-red-600">{formatCurrency(totalDepreciationThisYear)}</td>
+                                <td className="px-3 py-2 border border-cafe-cream italic">Penyusutan {currentYear}</td>
+                              </tr>
+                            );
+                          })()}
+                        </tbody>
+                      </table>
+                    </div>
+                    <p className="text-[8px] text-cafe-olive/40 italic">* Tabel di atas adalah simulasi nilai penyusutan yang harus dijurnalkan secara manual di akhir tahun.</p>
                   </div>
                 </div>
               )}

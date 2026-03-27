@@ -52,11 +52,28 @@ async function initDb() {
     } catch (e) {
       console.log("Migration error for orders table:", e);
     }
-    await sqlClient`CREATE TABLE IF NOT EXISTS assets (id SERIAL PRIMARY KEY, name TEXT NOT NULL, kelompok TEXT NOT NULL, purchase_date DATE NOT NULL, acquisition_cost NUMERIC NOT NULL)`;
+    await sqlClient`CREATE TABLE IF NOT EXISTS assets (id SERIAL PRIMARY KEY, name TEXT NOT NULL, kelompok TEXT NOT NULL, purchase_date DATE NOT NULL, acquisition_cost NUMERIC NOT NULL, jenis TEXT)`;
+    // Migration: Ensure assets table has jenis
+    try { await sqlClient`ALTER TABLE assets ADD COLUMN IF NOT EXISTS jenis TEXT`; } catch (e) {}
     
     const count = await sqlClient`SELECT count(*) FROM accounts`;
     if (parseInt(count[0].count) === 0) {
-      await sqlClient`INSERT INTO accounts (category, sub_category, account_name) VALUES ('Aset','Aset Lancar','Kas'),('Aset','Aset Lancar','Persediaan Barang'),('Ekuitas','Modal','Modal Pemilik'),('Pendapatan','Pendapatan Usaha','Penjualan'),('Beban','Harga Pokok Penjualan','Persediaan Awal'),('Beban','Harga Pokok Penjualan','Pembelian'),('Beban','Harga Pokok Penjualan','Persediaan Akhir'),('Beban','Beban Operasional','Beban Gaji'),('Beban','Beban Operasional','Beban Listrik & Air'),('Beban','Beban Operasional','Beban ATK')`;
+      await sqlClient`INSERT INTO accounts (category, sub_category, account_name) VALUES 
+        ('Aset','Aset Lancar','Kas'),
+        ('Aset','Aset Lancar','Bank'),
+        ('Aset','Aset Lancar','Persediaan Barang'),
+        ('Aset','Aset Tetap','Tanah dan/atau bangunan'),
+        ('Aset','Aset Tetap','Kendaraan'),
+        ('Aset','Aset Tetap','Inventaris'),
+        ('Kewajiban','Kewajiban Lancar','Utang Lancar Lainnya'),
+        ('Ekuitas','Modal','Modal Pemilik'),
+        ('Pendapatan','Pendapatan Usaha','Penjualan'),
+        ('Beban','Harga Pokok Penjualan','Persediaan Awal'),
+        ('Beban','Harga Pokok Penjualan','Pembelian'),
+        ('Beban','Harga Pokok Penjualan','Persediaan Akhir'),
+        ('Beban','Beban Operasional','Beban Gaji'),
+        ('Beban','Beban Operasional','Beban Listrik & Air'),
+        ('Beban','Beban Operasional','Beban ATK')`;
     }
     const itemCount = await sqlClient`SELECT count(*) FROM items`;
     if (parseInt(itemCount[0].count) === 0) {
@@ -87,8 +104,21 @@ export async function setupApp() {
   
   app.get("/api/assets", async (req, res) => res.json(await getSql()`SELECT * FROM assets ORDER BY purchase_date DESC`));
   app.post("/api/assets", async (req, res) => {
-    const { name, kelompok, purchase_date, acquisition_cost } = req.body;
-    const r = await getSql()`INSERT INTO assets (name, kelompok, purchase_date, acquisition_cost) VALUES (${name}, ${kelompok}, ${purchase_date}, ${acquisition_cost}) RETURNING *`;
+    const { name, kelompok, purchase_date, acquisition_cost, jenis, payment_method } = req.body;
+    const sqlClient = getSql();
+    const r = await sqlClient`INSERT INTO assets (name, kelompok, purchase_date, acquisition_cost, jenis) VALUES (${name}, ${kelompok}, ${purchase_date}, ${acquisition_cost}, ${jenis}) RETURNING *`;
+    
+    // Automatic Journaling
+    const tid = `T-AST-${Date.now()}`;
+    const description = `Pembelian Aset: ${name} (${jenis})`;
+    
+    // Debit: Asset Account (Ensure it exists or use a generic one)
+    // We'll use the 'jenis' as the account name for the debit side
+    await sqlClient`INSERT INTO journal_entries (transaction_id, account_name, description, debit, credit, date) VALUES (${tid}, ${jenis}, ${description}, ${acquisition_cost}, 0, ${purchase_date})`;
+    
+    // Credit: Payment Method
+    await sqlClient`INSERT INTO journal_entries (transaction_id, account_name, description, debit, credit, date) VALUES (${tid}, ${payment_method}, ${description}, 0, ${acquisition_cost}, ${purchase_date})`;
+    
     res.json(r[0]);
   });
   app.delete("/api/assets/:id", async (req, res) => {
@@ -164,7 +194,9 @@ export async function setupApp() {
   });
 
   app.get("/api/reports/profit-loss", async (req, res) => {
-    const entries = await getSql()`SELECT * FROM journal_entries`, accountsList = await getSql()`SELECT * FROM accounts`, assets = await getSql()`SELECT * FROM assets`;
+    const { year } = req.query;
+    const y = year ? parseInt(year as string) : new Date().getFullYear();
+    const entries = await getSql()`SELECT * FROM journal_entries WHERE EXTRACT(YEAR FROM date) = ${y}`, accountsList = await getSql()`SELECT * FROM accounts ORDER BY id ASC`;
     const getBal = (n: string) => entries.filter(j => j.account_name === n).reduce((s, j) => s + (parseFloat(j.debit) - parseFloat(j.credit)), 0);
     const penjualan = Math.abs(getBal("Penjualan"));
     const persediaanAwal = getBal("Persediaan Awal");
@@ -173,38 +205,17 @@ export async function setupApp() {
     const hpp = persediaanAwal + pembelian - persediaanAkhir;
     const labaKotor = penjualan - hpp;
     
-    // Calculate Depreciation
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth() + 1; // 1-12
-    
-    let totalDepreciationThisYear = 0;
-    const rates: { [key: string]: number } = { '1': 0.25, '2': 0.125, '3': 0.0625, '4': 0.05, 'Bangunan Permanen': 0.05, 'Bangunan Tidak Permanen': 0.10 };
-    
-    assets.forEach((a: any) => {
-      const pDate = new Date(a.purchase_date);
-      const rate = rates[a.kelompok] || 0;
-      const monthlyDep = (parseFloat(a.acquisition_cost) * rate) / 12;
-      
-      if (pDate.getFullYear() < currentYear) {
-        totalDepreciationThisYear += monthlyDep * currentMonth;
-      } else if (pDate.getFullYear() === currentYear) {
-        const monthsUsed = Math.max(0, currentMonth - pDate.getMonth());
-        totalDepreciationThisYear += monthlyDep * monthsUsed;
-      }
-    });
-
     const bebanOperasional = accountsList.filter(a => a.sub_category === "Beban Operasional").map(a => ({ name: a.account_name, amount: getBal(a.account_name) }));
-    if (totalDepreciationThisYear > 0) {
-      bebanOperasional.push({ name: "Beban Penyusutan Aset", amount: totalDepreciationThisYear });
-    }
 
     const totalBeban = bebanOperasional.reduce((s, b) => s + b.amount, 0), labaBersih = labaKotor - totalBeban;
     res.json({ penjualan, persediaanAwal, pembelian, persediaanAkhir, hpp, labaKotor, bebanOperasional, totalBeban, labaBersih });
   });
 
   app.get("/api/reports/balance-sheet", async (req, res) => {
-    const entries = await getSql()`SELECT * FROM journal_entries`, accountsList = await getSql()`SELECT * FROM accounts`, assets = await getSql()`SELECT * FROM assets`;
+    const { year } = req.query;
+    const y = year ? parseInt(year as string) : new Date().getFullYear();
+    // For balance sheet, we need all entries up to the end of the selected year
+    const entries = await getSql()`SELECT * FROM journal_entries WHERE EXTRACT(YEAR FROM date) <= ${y}`, accountsList = await getSql()`SELECT * FROM accounts ORDER BY id ASC`;
     const getBal = (n: string) => entries.filter(j => j.account_name === n).reduce((s, j) => s + (parseFloat(j.debit) - parseFloat(j.credit)), 0);
     const penjualan = Math.abs(getBal("Penjualan"));
     const persediaanAwal = getBal("Persediaan Awal");
@@ -213,43 +224,11 @@ export async function setupApp() {
     const hpp = persediaanAwal + pembelian - persediaanAkhir;
     const labaKotor = penjualan - hpp;
     
-    // Calculate Depreciation for Balance Sheet
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth() + 1;
-    let totalAccumulatedDepreciation = 0;
-    let totalDepreciationThisYear = 0;
-    const rates: { [key: string]: number } = { '1': 0.25, '2': 0.125, '3': 0.0625, '4': 0.05, 'Bangunan Permanen': 0.05, 'Bangunan Tidak Permanen': 0.10 };
-    
-    assets.forEach((a: any) => {
-      const pDate = new Date(a.purchase_date);
-      const rate = rates[a.kelompok] || 0;
-      const monthlyDep = (parseFloat(a.acquisition_cost) * rate) / 12;
-      
-      const totalMonths = (now.getFullYear() - pDate.getFullYear()) * 12 + (now.getMonth() - pDate.getMonth() + 1);
-      const accDep = Math.min(parseFloat(a.acquisition_cost), Math.max(0, monthlyDep * totalMonths));
-      totalAccumulatedDepreciation += accDep;
-
-      if (pDate.getFullYear() < currentYear) {
-        totalDepreciationThisYear += monthlyDep * currentMonth;
-      } else if (pDate.getFullYear() === currentYear) {
-        const monthsUsed = Math.max(0, currentMonth - pDate.getMonth());
-        totalDepreciationThisYear += monthlyDep * monthsUsed;
-      }
-    });
-
-    const totalBeban = accountsList.filter(a => a.sub_category === "Beban Operasional").reduce((s, a) => s + getBal(a.account_name), 0) + totalDepreciationThisYear;
+    const totalBeban = accountsList.filter(a => a.sub_category === "Beban Operasional").reduce((s, a) => s + getBal(a.account_name), 0);
     const labaTahunBerjalan = labaKotor - totalBeban;
     
     const asetRaw = accountsList.filter(a => a.category === "Aset").map(a => ({ name: a.account_name, sub: a.sub_category, amount: getBal(a.account_name) }));
     
-    // Add Fixed Assets from assets table
-    const totalAcquisitionCost = assets.reduce((s, a) => s + parseFloat(a.acquisition_cost), 0);
-    if (totalAcquisitionCost > 0) {
-      asetRaw.push({ name: "Aset Tetap (Harga Perolehan)", sub: "Aset Tetap", amount: totalAcquisitionCost });
-      asetRaw.push({ name: "Akumulasi Penyusutan Aset", sub: "Aset Tetap", amount: -totalAccumulatedDepreciation });
-    }
-
     const asetGrouped: { [key: string]: any[] } = {};
     asetRaw.forEach(a => {
       if (!asetGrouped[a.sub]) asetGrouped[a.sub] = [];
