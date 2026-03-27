@@ -24,7 +24,8 @@ import {
   MapPin,
   Printer,
   Clock,
-  CheckCircle2
+  CheckCircle2,
+  Search
 } from 'lucide-react';
 import { cn } from './lib/utils';
 import { CurrencyInput } from './components/ui/CurrencyInput';
@@ -52,6 +53,17 @@ const formatDate = (dateStr: string) =>
     year: 'numeric'
   });
 
+const getLocalDateTime = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  const seconds = String(now.getSeconds()).padStart(2, '0');
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+};
+
 const FormatCurrencyReport = ({ amount, className, bold = true }: { amount: number, className?: string, bold?: boolean }) => {
   const isNegative = amount < 0;
   const formatted = formatCurrency(Math.abs(amount));
@@ -66,7 +78,7 @@ const FormatCurrencyReport = ({ amount, className, bold = true }: { amount: numb
 export default function App() {
   const [activeTab, setActiveTab] = useState<'kasir' | 'antrian' | 'kinerja' | 'laporan' | 'admin'>('kasir');
   const [laporanSubTab, setLaporanSubTab] = useState<'jurnal' | 'labarugi' | 'neraca'>('jurnal');
-  const [adminSubTab, setAdminSubTab] = useState<'jurnal' | 'menu' | 'akun' | 'aset'>('jurnal');
+  const [adminSubTab, setAdminSubTab] = useState<'jurnal' | 'jurnal_persediaan' | 'menu' | 'akun' | 'aset'>('jurnal');
   const [antrianTab, setAntrianTab] = useState<'proses' | 'selesai'>('proses');
   
   const [items, setItems] = useState<Item[]>([]);
@@ -86,6 +98,8 @@ export default function App() {
   const [asetSearch, setAsetSearch] = useState('');
   const [asetFilterYear, setAsetFilterYear] = useState(new Date().getFullYear());
   const [asetToDelete, setAsetToDelete] = useState<number | null>(null);
+  const [accountPage, setAccountPage] = useState(1);
+  const [accountSearch, setAccountSearch] = useState('');
 
   const [lastOrder, setLastOrder] = useState<any | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
@@ -114,6 +128,10 @@ export default function App() {
   const [newItem, setNewItem] = useState({ name: '', category: 'Makanan', price: 0 });
   const [editingItem, setEditingItem] = useState<Item | null>(null);
   const [newAcc, setNewAcc] = useState({ category: 'Beban', sub_category: 'Beban Operasional', name: '' });
+  const [stockInput, setStockInput] = useState(0);
+  const [calculatedStockDiff, setCalculatedStockDiff] = useState(0);
+  const [inventoryDate, setInventoryDate] = useState(new Date().toISOString().split('T')[0]);
+  const [showInventoryConfirm, setShowInventoryConfirm] = useState(false);
   const [newAsset, setNewAsset] = useState({ 
     name: '', 
     kelompok: '1', 
@@ -172,6 +190,49 @@ export default function App() {
   useEffect(() => { fetchTurnover(); }, [currentMonth, currentYear]);
   useEffect(() => { fetchReports(); }, [reportYear]);
 
+  const lastInventoryValue = useMemo(() => {
+    if (!bsReport || !bsReport.asetGrouped['Aset Lancar']) return 0;
+    const item = bsReport.asetGrouped['Aset Lancar'].find(a => a.name === 'Persediaan Barang');
+    return item ? item.amount : 0;
+  }, [bsReport]);
+
+  const handlePostInventoryJournal = async () => {
+    if (calculatedStockDiff === 0) return;
+    
+    const entries = [];
+    if (calculatedStockDiff > 0) {
+      // Stock in PL > Physical Stock (Decrease Inventory)
+      // Debit: Persediaan Akhir, Credit: Persediaan Barang
+      entries.push({ account_name: 'Persediaan Akhir', debit: Math.abs(calculatedStockDiff), credit: 0 });
+      entries.push({ account_name: 'Persediaan Barang', debit: 0, credit: Math.abs(calculatedStockDiff) });
+    } else {
+      // Stock in PL < Physical Stock (Increase Inventory)
+      // Debit: Persediaan Barang, Credit: Persediaan Akhir
+      entries.push({ account_name: 'Persediaan Barang', debit: Math.abs(calculatedStockDiff), credit: 0 });
+      entries.push({ account_name: 'Persediaan Akhir', debit: 0, credit: Math.abs(calculatedStockDiff) });
+    }
+
+    try {
+      const res = await fetch('/api/journal/multi', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          entries,
+          description: `Penyesuaian Persediaan (Fisik: ${formatCurrency(stockInput)})`,
+          date: `${inventoryDate} ${new Date().toTimeString().split(' ')[0]}`
+        })
+      });
+      if (res.ok) {
+        setShowInventoryConfirm(false);
+        setCalculatedStockDiff(0);
+        setStockInput(0);
+        fetchData(); // Refresh all data including reports
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const handleAddToCart = () => {
     if (!showItemPopup) return;
     const newItem: CartItem = {
@@ -198,7 +259,12 @@ export default function App() {
     const res = await fetch('/api/sale', { 
       method: 'POST', 
       headers: { 'Content-Type': 'application/json' }, 
-      body: JSON.stringify({ cart, customer_name: customerName, table_number: tableNumber }) 
+      body: JSON.stringify({ 
+        cart, 
+        customer_name: customerName, 
+        table_number: tableNumber,
+        date: getLocalDateTime()
+      }) 
     });
     if (res.ok) { 
       const d = await res.json(); 
@@ -251,7 +317,8 @@ export default function App() {
       headers: { 'Content-Type': 'application/json' }, 
       body: JSON.stringify({ 
         entries: validEntries,
-        description: expDesc 
+        description: expDesc,
+        date: getLocalDateTime()
       }) 
     });
     
@@ -303,7 +370,7 @@ export default function App() {
     const res = await fetch('/api/assets', { 
       method: 'POST', 
       headers: { 'Content-Type': 'application/json' }, 
-      body: JSON.stringify(newAsset) 
+      body: JSON.stringify({ ...newAsset, date: getLocalDateTime() }) 
     });
     if (res.ok) { 
       setNewAsset({ 
@@ -814,6 +881,7 @@ export default function App() {
               <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
                 {[
                   {id:'jurnal',label:'Jurnal'},
+                  {id:'jurnal_persediaan',label:'Jurnal Persediaan'},
                   {id:'menu',label:'Menu'},
                   {id:'aset',label:'Aset'},
                   {id:'akun',label:'Akun'}
@@ -992,6 +1060,102 @@ export default function App() {
                             ))}
                         </tbody>
                       </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {adminSubTab === 'jurnal_persediaan' && (
+                <div className="space-y-6">
+                  <div className="bg-white p-6 rounded-2xl border border-cafe-olive/5 shadow-sm space-y-4">
+                    <div className="space-y-2">
+                      <h4 className="text-[10px] font-black uppercase text-cafe-olive border-b pb-1">Kalkulasi Jurnal Persediaan</h4>
+                      <p className="text-[10px] text-cafe-olive/70 leading-relaxed italic">
+                        Silahkan lakukan perhitungan sisa persediaan barang fisik di gudang/dapur, kemudian masukkan nilainya ke dalam kotak di bawah ini untuk menghitung selisih penyesuaian persediaan.
+                      </p>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl">
+                      <div className="space-y-1">
+                        <label className="text-[8px] font-black uppercase text-cafe-olive/50">Nilai Persediaan Barang Terakhir</label>
+                        <div className="w-full bg-cafe-cream/10 py-2 px-3 text-xs font-black text-cafe-olive rounded-xl border border-cafe-olive/5">
+                          {formatCurrency(lastInventoryValue)}
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[8px] font-black uppercase text-cafe-olive/50">Sisa Persediaan Barang (Fisik)</label>
+                        <CurrencyInput 
+                          value={stockInput} 
+                          onChange={setStockInput} 
+                          placeholder="Masukkan nilai fisik..." 
+                          className="w-full bg-cafe-cream/20 py-2 text-xs" 
+                        />
+                      </div>
+                      <div className="flex items-end">
+                        <button 
+                          onClick={() => {
+                            const currentStockInPL = plReport?.persediaanAkhir || 0;
+                            setCalculatedStockDiff(currentStockInPL - stockInput);
+                          }}
+                          className="w-full bg-cafe-olive text-white px-6 py-2 rounded-xl font-black text-[10px] hover:bg-cafe-ink transition-all h-[38px]"
+                        >
+                          KALKULASI
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="pt-4 space-y-4">
+                      <h4 className="text-[10px] font-black uppercase text-cafe-olive border-b pb-1">Contoh Penjurnalan Persediaan</h4>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-[9px] border-collapse">
+                          <thead className="bg-cafe-cream/50 text-cafe-olive/50 font-black uppercase">
+                            <tr>
+                              <th className="px-3 py-2 border border-cafe-cream">Tanggal</th>
+                              <th className="px-3 py-2 border border-cafe-cream">Debit</th>
+                              <th className="px-3 py-2 border border-cafe-cream">Kredit</th>
+                              <th className="px-3 py-2 border border-cafe-cream text-right">Nominal</th>
+                              <th className="px-3 py-2 border border-cafe-cream">Keterangan</th>
+                              <th className="px-3 py-2 border border-cafe-cream text-center">Aksi</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr className="hover:bg-cafe-cream/10">
+                              <td className="px-3 py-2 border border-cafe-cream whitespace-nowrap">
+                                <input 
+                                  type="date" 
+                                  value={inventoryDate} 
+                                  onChange={e => setInventoryDate(e.target.value)}
+                                  className="bg-transparent border-none p-0 text-[9px] font-bold outline-none w-full cursor-pointer"
+                                />
+                              </td>
+                              <td className="px-3 py-2 border border-cafe-cream font-bold">
+                                {calculatedStockDiff > 0 ? "Persediaan Akhir" : "Persediaan Barang"}
+                              </td>
+                              <td className="px-3 py-2 border border-cafe-cream font-bold">
+                                {calculatedStockDiff > 0 ? "Persediaan Barang" : "Persediaan Akhir"}
+                              </td>
+                              <td className="px-3 py-2 border border-cafe-cream text-right font-black text-red-600">
+                                {formatCurrency(Math.abs(calculatedStockDiff))}
+                              </td>
+                              <td className="px-3 py-2 border border-cafe-cream italic">
+                                Penyesuaian Persediaan {new Date(inventoryDate).getFullYear()}
+                              </td>
+                              <td className="px-3 py-2 border border-cafe-cream text-center">
+                                <button 
+                                  disabled={calculatedStockDiff === 0}
+                                  onClick={() => setShowInventoryConfirm(true)}
+                                  className="bg-cafe-accent text-white px-3 py-1 rounded-lg font-black text-[8px] hover:bg-cafe-ink transition-all disabled:opacity-30"
+                                >
+                                  JURNAL
+                                </button>
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="bg-cafe-cream/20 p-3 rounded-xl text-[9px] text-cafe-olive/70 italic">
+                        * Nilai nominal di atas adalah selisih antara Persediaan Akhir di Laba Rugi ({formatCurrency(plReport?.persediaanAkhir || 0)}) dengan nilai fisik yang Anda masukkan ({formatCurrency(stockInput)}).
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1291,24 +1455,39 @@ export default function App() {
                   <div className="bg-white p-6 rounded-2xl border border-cafe-olive/5 shadow-sm space-y-4">
                     <select value={newAcc.category} onChange={e => setNewAcc({...newAcc, category: e.target.value})} className="w-full border rounded-xl px-4 py-3 text-sm bg-cafe-cream/20">
                       <option value="Aset">Aset</option>
-                      <option value="Kewajiban">Kewajiban</option>
-                      <option value="Ekuitas">Ekuitas</option>
-                      <option value="Pendapatan">Pendapatan</option>
                       <option value="Beban">Beban</option>
+                      <option value="Ekuitas">Ekuitas</option>
+                      <option value="Kewajiban">Kewajiban</option>
+                      <option value="Pendapatan">Pendapatan</option>
                     </select>
                     <select value={newAcc.sub_category} onChange={e => setNewAcc({...newAcc, sub_category: e.target.value})} className="w-full border rounded-xl px-4 py-3 text-sm bg-cafe-cream/20">
                       <option value="Aset Lancar">Aset Lancar</option>
                       <option value="Aset Tetap">Aset Tetap</option>
-                      <option value="Kewajiban Lancar">Kewajiban Lancar</option>
-                      <option value="Kewajiban Jangka Panjang">Kewajiban Jangka Panjang</option>
-                      <option value="Modal">Modal</option>
-                      <option value="Pendapatan Usaha">Pendapatan Usaha</option>
                       <option value="Beban Operasional">Beban Operasional</option>
                       <option value="Harga Pokok Penjualan">Harga Pokok Penjualan</option>
+                      <option value="Kewajiban Jangka Panjang">Kewajiban Jangka Panjang</option>
+                      <option value="Kewajiban Lancar">Kewajiban Lancar</option>
+                      <option value="Modal">Modal</option>
+                      <option value="Pendapatan Usaha">Pendapatan Usaha</option>
                     </select>
                     <input value={newAcc.name} onChange={e => setNewAcc({...newAcc, name: e.target.value})} placeholder="Nama Akun" className="w-full border rounded-xl px-4 py-3 text-sm bg-cafe-cream/20" />
                     <button onClick={handleAddAccount} className="w-full bg-cafe-olive text-white py-4 rounded-xl font-black text-sm">TAMBAH AKUN</button>
                   </div>
+
+                  <div className="flex items-center gap-3 bg-white p-3 rounded-2xl border border-cafe-olive/5 shadow-sm">
+                    <Search size={14} className="text-cafe-olive/40 ml-2" />
+                    <input 
+                      type="text" 
+                      placeholder="Cari Nama Akun..." 
+                      value={accountSearch} 
+                      onChange={e => {
+                        setAccountSearch(e.target.value);
+                        setAccountPage(1);
+                      }}
+                      className="bg-transparent border-none w-full text-xs font-bold outline-none placeholder:text-cafe-olive/20"
+                    />
+                  </div>
+
                   <div className="bg-white rounded-2xl border border-cafe-olive/5 shadow-sm overflow-hidden">
                     <table className="w-full text-left text-[10px]">
                       <thead className="bg-cafe-cream/50 text-cafe-olive/50 font-black uppercase">
@@ -1319,15 +1498,49 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-cafe-cream">
-                        {accounts.map(a => (
-                          <tr key={a.id}>
-                            <td className="px-4 py-3 text-cafe-olive/60">{a.category}</td>
-                            <td className="px-4 py-3 text-cafe-olive/40 italic">{a.sub_category}</td>
-                            <td className="px-4 py-3 font-bold">{a.account_name}</td>
-                          </tr>
-                        ))}
+                        {(() => {
+                          const filtered = accounts
+                            .filter(a => a.account_name.toLowerCase().includes(accountSearch.toLowerCase()))
+                            .sort((a, b) => {
+                              if (a.category !== b.category) return a.category.localeCompare(b.category);
+                              if (a.sub_category !== b.sub_category) return a.sub_category.localeCompare(b.sub_category);
+                              return a.account_name.localeCompare(b.account_name);
+                            });
+                          
+                          const paginated = filtered.slice((accountPage - 1) * 10, accountPage * 10);
+                          
+                          return paginated.map(a => (
+                            <tr key={a.id}>
+                              <td className="px-4 py-3 text-cafe-olive/60">{a.category}</td>
+                              <td className="px-4 py-3 text-cafe-olive/40 italic">{a.sub_category}</td>
+                              <td className="px-4 py-3 font-bold">{a.account_name}</td>
+                            </tr>
+                          ));
+                        })()}
                       </tbody>
                     </table>
+                    
+                    <div className="p-4 border-t border-cafe-cream flex items-center justify-between bg-cafe-cream/10">
+                      <span className="text-[8px] font-black uppercase text-cafe-olive/40">
+                        Halaman {accountPage} dari {Math.ceil(accounts.filter(a => a.account_name.toLowerCase().includes(accountSearch.toLowerCase())).length / 10) || 1}
+                      </span>
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={() => setAccountPage(p => Math.max(1, p - 1))}
+                          disabled={accountPage === 1}
+                          className="p-2 rounded-lg bg-white border border-cafe-olive/5 disabled:opacity-30"
+                        >
+                          <ChevronLeft size={14} />
+                        </button>
+                        <button 
+                          onClick={() => setAccountPage(p => p + 1)}
+                          disabled={accountPage * 10 >= accounts.filter(a => a.account_name.toLowerCase().includes(accountSearch.toLowerCase())).length}
+                          className="p-2 rounded-lg bg-white border border-cafe-olive/5 disabled:opacity-30"
+                        >
+                          <ChevronRight size={14} />
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
@@ -1588,6 +1801,45 @@ export default function App() {
                     className="flex-[2] bg-red-500 text-white py-4 rounded-2xl font-black shadow-lg shadow-red-500/20 hover:bg-red-600 transition-all"
                   >
                     HAPUS ASET
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showInventoryConfirm && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-cafe-ink/60 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-white rounded-[32px] w-full max-w-sm overflow-hidden shadow-2xl border border-cafe-olive/10"
+            >
+              <div className="p-8 text-center space-y-6">
+                <div className="w-20 h-20 bg-cafe-cream rounded-full flex items-center justify-center mx-auto ring-8 ring-cafe-cream/50">
+                  <FileText size={40} className="text-cafe-olive" />
+                </div>
+                <div className="space-y-2">
+                  <h3 className="text-xl font-black text-cafe-ink uppercase tracking-tight">Konfirmasi</h3>
+                  <p className="text-sm text-cafe-olive/70 leading-relaxed px-4">
+                    Apakah anda yakin ingin menambahkan data ini ke jurnal?
+                  </p>
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button 
+                    onClick={() => setShowInventoryConfirm(false)} 
+                    className="flex-1 py-4 rounded-2xl font-bold text-cafe-olive/60 hover:bg-cafe-cream transition-all"
+                  >
+                    Batal
+                  </button>
+                  <button 
+                    onClick={handlePostInventoryJournal} 
+                    className="flex-[2] bg-cafe-olive text-white py-4 rounded-2xl font-black shadow-lg shadow-cafe-olive/20 hover:bg-cafe-ink transition-all"
+                  >
+                    YA, JURNAL
                   </button>
                 </div>
               </div>

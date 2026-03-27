@@ -73,7 +73,9 @@ async function initDb() {
         ('Beban','Harga Pokok Penjualan','Persediaan Akhir'),
         ('Beban','Beban Operasional','Beban Gaji'),
         ('Beban','Beban Operasional','Beban Listrik & Air'),
-        ('Beban','Beban Operasional','Beban ATK')`;
+        ('Beban','Beban Operasional','Beban ATK'),
+        ('Beban','Beban Operasional','Biaya Penyusutan'),
+        ('Aset','Aset Tetap','Akumulasi Penyusutan')`;
     }
     const itemCount = await sqlClient`SELECT count(*) FROM items`;
     if (parseInt(itemCount[0].count) === 0) {
@@ -132,13 +134,14 @@ export async function setupApp() {
     catch (err) { res.status(400).json({ error: "Akun sudah ada" }); }
   });
 
-  app.get("/api/journal", async (req, res) => res.json(await getSql()`SELECT * FROM journal_entries ORDER BY date DESC`));
+  app.get("/api/journal", async (req, res) => res.json(await getSql()`SELECT id, transaction_id, account_name, description, debit, credit, TO_CHAR(date, 'YYYY-MM-DD HH24:MI:SS') as date FROM journal_entries ORDER BY date DESC`));
 
   app.post("/api/sale", async (req, res) => {
     const { cart, date, customer_name, table_number } = req.body; // cart: [{ item_id, quantity, note, price }]
     if (!cart || cart.length === 0) return res.status(400).json({ error: "Cart is empty" });
 
-    const today = new Date().toISOString().split('T')[0];
+    const transactionDate = date || new Date().toISOString();
+    const today = transactionDate.split(' ')[0];
     const countToday = await getSql()`SELECT count(*) FROM orders WHERE created_at::date = ${today}::date`;
     const queueNum = (parseInt(countToday[0].count) + 1).toString().padStart(3, '0');
     
@@ -148,15 +151,15 @@ export async function setupApp() {
 
     const tid = `T-SALE-${Date.now()}`;
 
-    const order = await getSql()`INSERT INTO orders (queue_number, total_amount, items_json, customer_name, table_number, status) VALUES (${queueNum}, ${totalSale}, ${JSON.stringify(cart)}, ${customer_name || null}, ${table_number || null}, 'processing') RETURNING *`;
-    await getSql()`INSERT INTO journal_entries (transaction_id, account_name, description, debit, credit, date) VALUES (${tid}, 'Kas', ${`Penjualan: ${itemDescriptions}`}, ${totalSale}, 0, ${date || new Date()})`;
-    await getSql()`INSERT INTO journal_entries (transaction_id, account_name, description, debit, credit, date) VALUES (${tid}, 'Penjualan', ${`Penjualan: ${itemDescriptions}`}, 0, ${totalSale}, ${date || new Date()})`;
+    const order = await getSql()`INSERT INTO orders (queue_number, total_amount, items_json, customer_name, table_number, status, created_at) VALUES (${queueNum}, ${totalSale}, ${JSON.stringify(cart)}, ${customer_name || null}, ${table_number || null}, 'processing', ${transactionDate}) RETURNING *`;
+    await getSql()`INSERT INTO journal_entries (transaction_id, account_name, description, debit, credit, date) VALUES (${tid}, 'Kas', ${`Penjualan: ${itemDescriptions}`}, ${totalSale}, 0, ${transactionDate})`;
+    await getSql()`INSERT INTO journal_entries (transaction_id, account_name, description, debit, credit, date) VALUES (${tid}, 'Penjualan', ${`Penjualan: ${itemDescriptions}`}, 0, ${totalSale}, ${transactionDate})`;
 
     res.json({ success: true, queue_number: queueNum, total: totalSale, order: order[0] });
   });
 
   app.get("/api/orders", async (req, res) => {
-    res.json(await getSql()`SELECT * FROM orders ORDER BY created_at DESC`);
+    res.json(await getSql()`SELECT id, queue_number, total_amount, items_json, customer_name, table_number, status, TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') as created_at FROM orders ORDER BY created_at DESC`);
   });
 
   app.patch("/api/orders/:id/status", async (req, res) => {
@@ -188,8 +191,9 @@ export async function setupApp() {
   app.post("/api/expense", async (req, res) => {
     const { debit_account, credit_account, amount, description, date } = req.body;
     const tid = `T-EXP-${Date.now()}`;
-    await getSql()`INSERT INTO journal_entries (transaction_id, account_name, description, debit, credit, date) VALUES (${tid}, ${debit_account}, ${description}, ${amount}, 0, ${date || new Date()})`;
-    await getSql()`INSERT INTO journal_entries (transaction_id, account_name, description, debit, credit, date) VALUES (${tid}, ${credit_account}, ${description}, 0, ${amount}, ${date || new Date()})`;
+    const transactionDate = date || new Date().toISOString();
+    await getSql()`INSERT INTO journal_entries (transaction_id, account_name, description, debit, credit, date) VALUES (${tid}, ${debit_account}, ${description}, ${amount}, 0, ${transactionDate})`;
+    await getSql()`INSERT INTO journal_entries (transaction_id, account_name, description, debit, credit, date) VALUES (${tid}, ${credit_account}, ${description}, 0, ${transactionDate})`;
     res.json({ success: true });
   });
 
@@ -201,7 +205,7 @@ export async function setupApp() {
     const penjualan = Math.abs(getBal("Penjualan"));
     const persediaanAwal = getBal("Persediaan Awal");
     const pembelian = getBal("Pembelian");
-    const persediaanAkhir = getBal("Persediaan Akhir");
+    const persediaanAkhir = Math.abs(getBal("Persediaan Akhir"));
     const hpp = persediaanAwal + pembelian - persediaanAkhir;
     const labaKotor = penjualan - hpp;
     
@@ -220,7 +224,7 @@ export async function setupApp() {
     const penjualan = Math.abs(getBal("Penjualan"));
     const persediaanAwal = getBal("Persediaan Awal");
     const pembelian = getBal("Pembelian");
-    const persediaanAkhir = getBal("Persediaan Akhir");
+    const persediaanAkhir = Math.abs(getBal("Persediaan Akhir"));
     const hpp = persediaanAwal + pembelian - persediaanAkhir;
     const labaKotor = penjualan - hpp;
     
@@ -251,12 +255,12 @@ export async function setupApp() {
   });
 
   app.post("/api/journal/multi", async (req, res) => {
-    const { entries, description } = req.body;
+    const { entries, description, date } = req.body;
     const transactionId = `T-JRN-${Date.now()}`;
-    const date = new Date().toISOString();
+    const transactionDate = date || new Date().toISOString();
     
     for (const entry of entries) {
-      await getSql()`INSERT INTO journal_entries (transaction_id, account_name, description, debit, credit, date) VALUES (${transactionId}, ${entry.account_name}, ${description}, ${entry.debit}, ${entry.credit}, ${date})`;
+      await getSql()`INSERT INTO journal_entries (transaction_id, account_name, description, debit, credit, date) VALUES (${transactionId}, ${entry.account_name}, ${description}, ${entry.debit}, ${entry.credit}, ${transactionDate})`;
     }
     res.json({ success: true });
   });
