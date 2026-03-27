@@ -85,6 +85,7 @@ export default function App() {
   const [asetPage, setAsetPage] = useState(1);
   const [asetSearch, setAsetSearch] = useState('');
   const [asetFilterYear, setAsetFilterYear] = useState(new Date().getFullYear());
+  const [asetToDelete, setAsetToDelete] = useState<number | null>(null);
 
   const [lastOrder, setLastOrder] = useState<any | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
@@ -319,10 +320,15 @@ export default function App() {
     }
   };
 
-  const handleDeleteAsset = async (id: number) => {
-    if (!confirm("Hapus aset ini?")) return;
-    const res = await fetch(`/api/assets/${id}`, { method: 'DELETE' });
+  const handleDeleteAsset = (id: number) => {
+    setAsetToDelete(id);
+  };
+
+  const confirmDeleteAsset = async () => {
+    if (!asetToDelete) return;
+    const res = await fetch(`/api/assets/${asetToDelete}`, { method: 'DELETE' });
     if (res.ok) fetchData();
+    setAsetToDelete(null);
   };
 
   const changeMonth = (dir: 'prev' | 'next') => {
@@ -1542,6 +1548,46 @@ export default function App() {
                     className="flex-[2] bg-cafe-olive text-white py-4 rounded-2xl font-black shadow-lg flex items-center justify-center gap-2"
                   >
                     <Printer size={18} /> CETAK STRUK
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {asetToDelete && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-cafe-ink/60 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-white rounded-[32px] w-full max-w-sm overflow-hidden shadow-2xl border border-cafe-olive/10"
+            >
+              <div className="p-8 text-center space-y-6">
+                <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto ring-8 ring-red-50/50">
+                  <AlertCircle size={40} className="text-red-500" />
+                </div>
+                <div className="space-y-2">
+                  <h3 className="text-xl font-black text-cafe-ink uppercase tracking-tight">Peringatan..!</h3>
+                  <p className="text-sm text-cafe-olive/70 leading-relaxed px-4">
+                    Apakah anda ingin menghapus aset ini? <br/>
+                    <span className="font-bold text-red-500">Pastikan juga untuk menghapus jurnalnya.</span>
+                  </p>
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button 
+                    onClick={() => setAsetToDelete(null)} 
+                    className="flex-1 py-4 rounded-2xl font-bold text-cafe-olive/60 hover:bg-cafe-cream transition-all"
+                  >
+                    Batal
+                  </button>
+                  <button 
+                    onClick={confirmDeleteAsset} 
+                    className="flex-[2] bg-red-500 text-white py-4 rounded-2xl font-black shadow-lg shadow-red-500/20 hover:bg-red-600 transition-all"
+                  >
+                    HAPUS ASET
                   </button>
                 </div>
               </div>
