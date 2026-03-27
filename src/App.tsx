@@ -430,7 +430,7 @@ export default function App() {
   return (
     <div className="min-h-screen flex flex-col bg-cafe-cream/30">
       {/* Top Header */}
-      <header className="relative h-32 flex flex-col justify-center px-6 overflow-hidden shadow-md">
+      <header className="sticky top-0 z-50 h-32 flex flex-col justify-center px-6 overflow-hidden shadow-md bg-cafe-cream">
         <div className="absolute inset-0 z-0">
           <img 
             src="https://images.unsplash.com/photo-1554118811-1e0d58224f24?auto=format&fit=crop&q=80&w=1000" 
@@ -580,55 +580,65 @@ export default function App() {
               </div>
 
               <div className="space-y-4">
-                {orders
-                  .filter(o => antrianTab === 'proses' ? o.status === 'processing' : o.status === 'completed')
-                  .sort((a, b) => {
-                    if (antrianTab === 'proses') {
-                      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-                    } else {
-                      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-                    }
-                  })
-                  .map(order => {
-                    const items = JSON.parse(order.items_json || '[]');
-                    return (
-                      <motion.div 
-                        key={order.id}
-                        layout
-                        onClick={() => {
-                          if (order.status === 'processing') {
-                            setSelectedOrder(order);
-                            setShowDetails(false);
-                          }
-                        }}
-                        className="bg-white p-4 rounded-2xl border border-cafe-olive/5 shadow-sm flex items-center justify-between cursor-pointer active:scale-[0.98] transition-all"
-                      >
-                        <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 bg-cafe-cream rounded-xl flex items-center justify-center">
-                            <span className="text-xl font-black text-cafe-olive">{order.queue_number}</span>
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-bold text-cafe-ink">{order.customer_name || 'Pelanggan'}</span>
-                              {order.table_number && (
-                                <span className="px-2 py-0.5 bg-cafe-accent/10 text-cafe-accent text-[10px] font-black rounded-md">
-                                  Meja {order.table_number}
-                                </span>
-                              )}
+                {(() => {
+                  const today = getLocalDateTime().split(' ')[0];
+                  return orders
+                    .filter(o => {
+                      if (antrianTab === 'proses') return o.status === 'processing';
+                      return o.status === 'completed' && o.created_at && o.created_at.startsWith(today);
+                    })
+                    .sort((a, b) => {
+                      if (antrianTab === 'proses') {
+                        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+                      } else {
+                        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+                      }
+                    })
+                    .map(order => {
+                      const items = JSON.parse(order.items_json || '[]');
+                      return (
+                        <motion.div 
+                          key={order.id}
+                          layout
+                          onClick={() => {
+                            if (order.status === 'processing') {
+                              setSelectedOrder(order);
+                              setShowDetails(false);
+                            }
+                          }}
+                          className="bg-white p-4 rounded-2xl border border-cafe-olive/5 shadow-sm flex items-center justify-between cursor-pointer active:scale-[0.98] transition-all"
+                        >
+                          <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 bg-cafe-cream rounded-xl flex items-center justify-center">
+                              <span className="text-xl font-black text-cafe-olive">{order.queue_number}</span>
                             </div>
-                            <p className="text-[10px] text-cafe-olive/60 mt-0.5 line-clamp-1">
-                              {items.map((i: any) => `${i.name} (${i.quantity})`).join(', ')}
-                            </p>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-bold text-cafe-ink">{order.customer_name || 'Pelanggan'}</span>
+                                {order.table_number && (
+                                  <span className="px-2 py-0.5 bg-cafe-accent/10 text-cafe-accent text-[10px] font-black rounded-md">
+                                    Meja {order.table_number}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-cafe-olive/60 mt-0.5 line-clamp-1">
+                                {items.map((i: any) => `${i.name} (${i.quantity})`).join(', ')}
+                              </p>
+                            </div>
                           </div>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-[10px] text-cafe-olive/40 font-bold">{new Date(order.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</p>
-                          {order.status === 'completed' && <CheckCircle2 size={16} className="text-green-500 ml-auto mt-1" />}
-                        </div>
-                      </motion.div>
-                    );
-                  })}
-                {orders.filter(o => antrianTab === 'proses' ? o.status === 'processing' : o.status === 'completed').length === 0 && (
+                          <div className="text-right">
+                            <p className="text-[10px] text-cafe-olive/40 font-bold">{new Date(order.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</p>
+                            {order.status === 'completed' && <CheckCircle2 size={16} className="text-green-500 ml-auto mt-1" />}
+                          </div>
+                        </motion.div>
+                      );
+                    });
+                })()}
+                {orders.filter(o => {
+                  const today = getLocalDateTime().split(' ')[0];
+                  if (antrianTab === 'proses') return o.status === 'processing';
+                  return o.status === 'completed' && o.created_at && o.created_at.startsWith(today);
+                }).length === 0 && (
                   <div className="text-center py-20">
                     <Clock className="w-12 h-12 text-cafe-olive/10 mx-auto mb-4" />
                     <p className="text-sm font-bold text-cafe-olive/30 italic">Tidak ada antrian {antrianTab}</p>
