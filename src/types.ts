@@ -50,3 +50,11 @@ export interface BalanceSheetReport {
   totalPasiva: number;
   isBalanced: boolean;
 }
+
+export interface Asset {
+  id: number;
+  name: string;
+  kelompok: string;
+  purchase_date: string;
+  acquisition_cost: number;
+}

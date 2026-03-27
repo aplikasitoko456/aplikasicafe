@@ -34,7 +34,8 @@ import {
   Account, 
   CartItem,
   ProfitLossReport, 
-  BalanceSheetReport 
+  BalanceSheetReport,
+  Asset
 } from './types';
 
 const formatCurrency = (amount: number) => 
@@ -55,12 +56,13 @@ const formatDate = (dateStr: string) =>
 export default function App() {
   const [activeTab, setActiveTab] = useState<'kasir' | 'antrian' | 'kinerja' | 'laporan' | 'admin'>('kasir');
   const [laporanSubTab, setLaporanSubTab] = useState<'jurnal' | 'labarugi' | 'neraca'>('jurnal');
-  const [adminSubTab, setAdminSubTab] = useState<'jurnal' | 'menu' | 'akun'>('jurnal');
+  const [adminSubTab, setAdminSubTab] = useState<'jurnal' | 'menu' | 'akun' | 'aset'>('jurnal');
   const [antrianTab, setAntrianTab] = useState<'proses' | 'selesai'>('proses');
   
   const [items, setItems] = useState<Item[]>([]);
   const [journal, setJournal] = useState<JournalEntry[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [assets, setAssets] = useState<Asset[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [plReport, setPlReport] = useState<ProfitLossReport | null>(null);
   const [bsReport, setBsReport] = useState<BalanceSheetReport | null>(null);
@@ -80,7 +82,7 @@ export default function App() {
 
   // Kinerja States
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth() + 1);
-  const [currentYear] = useState(new Date().getFullYear());
+  const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
   const [turnoverData, setTurnoverData] = useState<{date: string, total: number}[]>([]);
 
   // Admin Form States
@@ -92,13 +94,15 @@ export default function App() {
   const [newItem, setNewItem] = useState({ name: '', category: 'Makanan', price: 0 });
   const [editingItem, setEditingItem] = useState<Item | null>(null);
   const [newAcc, setNewAcc] = useState({ category: 'Beban', sub_category: 'Beban Operasional', name: '' });
+  const [newAsset, setNewAsset] = useState({ name: '', kelompok: '1', purchase_date: new Date().toISOString().split('T')[0], acquisition_cost: 0 });
 
   const fetchData = async () => {
     try {
-      const [iR, jR, aR, plR, bsR, oR] = await Promise.all([
+      const [iR, jR, aR, asR, plR, bsR, oR] = await Promise.all([
         fetch('/api/items'), 
         fetch('/api/journal'), 
         fetch('/api/accounts'), 
+        fetch('/api/assets'),
         fetch('/api/reports/profit-loss'), 
         fetch('/api/reports/balance-sheet'),
         fetch('/api/orders')
@@ -107,6 +111,7 @@ export default function App() {
       setItems(await iR.json()); 
       setJournal(await jR.json()); 
       setAccounts(await aR.json()); 
+      setAssets(await asR.json());
       setPlReport(await plR.json()); 
       setBsReport(await bsR.json());
       setOrders(await oR.json());
@@ -255,13 +260,40 @@ export default function App() {
     }
   };
 
+  const handleAddAsset = async () => {
+    if (!newAsset.name || newAsset.acquisition_cost <= 0) return;
+    const res = await fetch('/api/assets', { 
+      method: 'POST', 
+      headers: { 'Content-Type': 'application/json' }, 
+      body: JSON.stringify(newAsset) 
+    });
+    if (res.ok) { 
+      setNewAsset({ name: '', kelompok: '1', purchase_date: new Date().toISOString().split('T')[0], acquisition_cost: 0 }); 
+      fetchData(); 
+    } else {
+      alert("Gagal menambahkan aset");
+    }
+  };
+
+  const handleDeleteAsset = async (id: number) => {
+    if (!confirm("Hapus aset ini?")) return;
+    const res = await fetch(`/api/assets/${id}`, { method: 'DELETE' });
+    if (res.ok) fetchData();
+  };
+
   const changeMonth = (dir: 'prev' | 'next') => {
     if (dir === 'prev') {
-      if (currentMonth > 1) {
+      if (currentMonth === 1) {
+        setCurrentMonth(12);
+        setCurrentYear(currentYear - 1);
+      } else {
         setCurrentMonth(currentMonth - 1);
       }
     } else {
-      if (currentMonth < 12) {
+      if (currentMonth === 12) {
+        setCurrentMonth(1);
+        setCurrentYear(currentYear + 1);
+      } else {
         setCurrentMonth(currentMonth + 1);
       }
     }
@@ -666,6 +698,7 @@ export default function App() {
                 {[
                   {id:'jurnal',label:'Jurnal'},
                   {id:'menu',label:'Menu'},
+                  {id:'aset',label:'Aset'},
                   {id:'akun',label:'Akun'}
                 ].map(s => (
                   <button 
@@ -897,14 +930,122 @@ export default function App() {
                 </div>
               )}
 
+              {adminSubTab === 'aset' && (
+                <div className="space-y-6">
+                  <div className="bg-white p-6 rounded-2xl border border-cafe-olive/5 shadow-sm space-y-4">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[8px] font-black uppercase text-cafe-olive/50">Nama Aset</label>
+                        <input value={newAsset.name} onChange={e => setNewAsset({...newAsset, name: e.target.value})} placeholder="Nama Aset" className="w-full border rounded-xl px-4 py-2 text-xs bg-cafe-cream/20" />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[8px] font-black uppercase text-cafe-olive/50">Kelompok</label>
+                        <select value={newAsset.kelompok} onChange={e => setNewAsset({...newAsset, kelompok: e.target.value})} className="w-full border rounded-xl px-4 py-2 text-xs bg-cafe-cream/20">
+                          <option value="1">Kelompok 1 (4 Thn)</option>
+                          <option value="2">Kelompok 2 (8 Thn)</option>
+                          <option value="3">Kelompok 3 (16 Thn)</option>
+                          <option value="4">Kelompok 4 (20 Thn)</option>
+                          <option value="Bangunan Permanen">Bangunan Permanen (20 Thn)</option>
+                          <option value="Bangunan Tidak Permanen">Bangunan Tidak Permanen (10 Thn)</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[8px] font-black uppercase text-cafe-olive/50">Tanggal Beli</label>
+                        <input type="date" value={newAsset.purchase_date} onChange={e => setNewAsset({...newAsset, purchase_date: e.target.value})} className="w-full border rounded-xl px-4 py-2 text-xs bg-cafe-cream/20" />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[8px] font-black uppercase text-cafe-olive/50">Harga Perolehan</label>
+                        <CurrencyInput value={newAsset.acquisition_cost} onChange={(v:number) => setNewAsset({...newAsset, acquisition_cost: v})} placeholder="Harga Perolehan" className="w-full bg-cafe-cream/20 py-2 text-xs" />
+                      </div>
+                    </div>
+                    <button onClick={handleAddAsset} className="w-full bg-cafe-olive text-white py-4 rounded-xl font-black text-sm">TAMBAH ASET</button>
+                  </div>
+                  <div className="bg-white rounded-2xl border border-cafe-olive/5 shadow-sm overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-[8px]">
+                        <thead className="bg-cafe-cream/50 text-cafe-olive/50 font-black uppercase">
+                          <tr>
+                            <th className="px-3 py-3">Aset</th>
+                            <th className="px-3 py-3">Klp</th>
+                            <th className="px-3 py-3">Tgl Beli</th>
+                            <th className="px-3 py-3 text-right">Perolehan</th>
+                            <th className="px-3 py-3 text-right">Buku Awal</th>
+                            <th className="px-3 py-3 text-right">Peny. Thn Ini</th>
+                            <th className="px-3 py-3 text-right">Buku Akhir</th>
+                            <th className="px-3 py-3 text-right">Akum. Peny.</th>
+                            <th className="px-3 py-3 text-center">Aksi</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-cafe-cream">
+                          {assets.map(a => {
+                            const rates: { [key: string]: number } = { '1': 0.25, '2': 0.125, '3': 0.0625, '4': 0.05, 'Bangunan Permanen': 0.05, 'Bangunan Tidak Permanen': 0.10 };
+                            const rate = rates[a.kelompok] || 0;
+                            const cost = parseFloat(a.acquisition_cost as any);
+                            const pDate = new Date(a.purchase_date);
+                            const now = new Date();
+                            const currentYear = now.getFullYear();
+                            const currentMonth = now.getMonth() + 1;
+                            
+                            const monthlyDep = (cost * rate) / 12;
+                            
+                            // Months before this year
+                            const monthsBeforeThisYear = Math.max(0, (currentYear - pDate.getFullYear()) * 12 - pDate.getMonth());
+                            const accDepStartYear = Math.min(cost, monthlyDep * monthsBeforeThisYear);
+                            const bookValueStartYear = cost - accDepStartYear;
+                            
+                            // Months this year
+                            const monthsThisYear = pDate.getFullYear() < currentYear ? currentMonth : Math.max(0, currentMonth - pDate.getMonth());
+                            const depThisYear = Math.min(bookValueStartYear, monthlyDep * monthsThisYear);
+                            
+                            const bookValueEndYear = bookValueStartYear - depThisYear;
+                            const accDepTotal = accDepStartYear + depThisYear;
+
+                            return (
+                              <tr key={a.id}>
+                                <td className="px-3 py-3 font-bold">{a.name}</td>
+                                <td className="px-3 py-3">{a.kelompok}</td>
+                                <td className="px-3 py-3 whitespace-nowrap">{new Date(a.purchase_date).toLocaleDateString('id-ID')}</td>
+                                <td className="px-3 py-3 text-right">{formatCurrency(cost)}</td>
+                                <td className="px-3 py-3 text-right">{formatCurrency(bookValueStartYear)}</td>
+                                <td className="px-3 py-3 text-right text-red-500">{formatCurrency(depThisYear)}</td>
+                                <td className="px-3 py-3 text-right font-bold">{formatCurrency(bookValueEndYear)}</td>
+                                <td className="px-3 py-3 text-right text-red-600">{formatCurrency(accDepTotal)}</td>
+                                <td className="px-3 py-3 text-center">
+                                  <button onClick={() => handleDeleteAsset(a.id)} className="text-red-500 hover:text-red-700">
+                                    <Trash2 size={12} />
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {adminSubTab === 'akun' && (
                 <div className="space-y-6">
                   <div className="bg-white p-6 rounded-2xl border border-cafe-olive/5 shadow-sm space-y-4">
                     <select value={newAcc.category} onChange={e => setNewAcc({...newAcc, category: e.target.value})} className="w-full border rounded-xl px-4 py-3 text-sm bg-cafe-cream/20">
-                      <option value="Aset">Aset</option><option value="Ekuitas">Ekuitas</option><option value="Pendapatan">Pendapatan</option><option value="Beban">Beban</option>
+                      <option value="Aset">Aset</option>
+                      <option value="Kewajiban">Kewajiban</option>
+                      <option value="Ekuitas">Ekuitas</option>
+                      <option value="Pendapatan">Pendapatan</option>
+                      <option value="Beban">Beban</option>
                     </select>
                     <select value={newAcc.sub_category} onChange={e => setNewAcc({...newAcc, sub_category: e.target.value})} className="w-full border rounded-xl px-4 py-3 text-sm bg-cafe-cream/20">
-                      <option value="Aset Lancar">Aset Lancar</option><option value="Modal">Modal</option><option value="Pendapatan Usaha">Pendapatan Usaha</option><option value="Beban Operasional">Beban Operasional</option><option value="Harga Pokok Penjualan">Harga Pokok Penjualan</option>
+                      <option value="Aset Lancar">Aset Lancar</option>
+                      <option value="Aset Tetap">Aset Tetap</option>
+                      <option value="Kewajiban Lancar">Kewajiban Lancar</option>
+                      <option value="Kewajiban Jangka Panjang">Kewajiban Jangka Panjang</option>
+                      <option value="Modal">Modal</option>
+                      <option value="Pendapatan Usaha">Pendapatan Usaha</option>
+                      <option value="Beban Operasional">Beban Operasional</option>
+                      <option value="Harga Pokok Penjualan">Harga Pokok Penjualan</option>
                     </select>
                     <input value={newAcc.name} onChange={e => setNewAcc({...newAcc, name: e.target.value})} placeholder="Nama Akun" className="w-full border rounded-xl px-4 py-3 text-sm bg-cafe-cream/20" />
                     <button onClick={handleAddAccount} className="w-full bg-cafe-olive text-white py-4 rounded-xl font-black text-sm">TAMBAH AKUN</button>
