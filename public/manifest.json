@@ -1,0 +1,21 @@
+{
+  "name": "Cafe Bajibun",
+  "short_name": "Cafe Bajibun",
+  "description": "Aplikasi POS & Akuntansi Cafe Bajibun",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FDFCF7",
+  "theme_color": "#5A5A40",
+  "icons": [
+    {
+      "src": "https://picsum.photos/seed/cafe/192/192",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://picsum.photos/seed/cafe/512/512",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
