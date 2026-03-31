@@ -1781,7 +1781,7 @@ export default function App() {
                 </div>
 
                 {/* Receipt Preview */}
-                <div className="bg-cafe-cream/30 border-2 border-dashed border-cafe-cream rounded-2xl p-6 font-mono text-[10px] text-cafe-ink space-y-2 mb-6">
+                <div id="printable-receipt" className="bg-cafe-cream/30 border-2 border-dashed border-cafe-cream rounded-2xl p-6 font-mono text-[10px] text-cafe-ink space-y-2 mb-6">
                   <div className="text-center font-bold text-xs mb-1">CAFE BAJIBUN</div>
                   <div className="text-center text-[8px] opacity-60 mb-2">Jalan Andi Tonro Gowa</div>
                   <div className="border-t border-dashed border-cafe-ink/20 pt-2">
@@ -1804,6 +1804,14 @@ export default function App() {
                   </div>
                   <div className="border-t border-dashed border-cafe-ink/20 pt-4 text-center italic opacity-60">
                     Terima kasih atas kunjungan anda
+                  </div>
+                </div>
+
+                <div className="mb-6 p-4 bg-blue-50 rounded-2xl border border-blue-100 flex gap-3 items-start">
+                  <AlertCircle size={16} className="text-blue-500 shrink-0 mt-0.5" />
+                  <div className="text-[10px] text-blue-700 leading-relaxed">
+                    <p className="font-bold mb-1">Tips Printer Bluetooth:</p>
+                    <p>Jika printer tidak muncul, pastikan anda sudah menginstal aplikasi <b>"Bluetooth Print"</b> atau <b>"RawBT"</b> dari Play Store dan mengaktifkan <b>Print Service</b>-nya.</p>
                   </div>
                 </div>
 
@@ -1933,4 +1941,4 @@ export default function App() {
       </nav>
     </div>
   );
-}
+} 
