@@ -82,7 +82,12 @@ export async function selectPrinter(): Promise<BluetoothDevice> {
   }
 }
 
-export async function printReceipt(transaction: any, device?: BluetoothDevice, storeName: string = 'CAFE BAJIBUN') {
+export async function printReceipt(
+  transaction: any, 
+  device?: BluetoothDevice, 
+  storeName: string = 'CAFE BAJIBUN',
+  address: string = 'Jalan Andi Tonro Gowa'
+) {
   console.log('Starting printReceipt...', transaction);
   
   if (!navigator.bluetooth) {
@@ -121,10 +126,22 @@ export async function printReceipt(transaction: any, device?: BluetoothDevice, s
       .bold(true)
       .line(storeName.toUpperCase())
       .bold(false)
-      .line('Terima Kasih Telah Belanja')
+      .line(address)
       .separator()
       .alignLeft();
 
+    // Header Info
+    if (transaction.queueNumber) encoder.line(`Antrian: #${transaction.queueNumber}`);
+    if (transaction.customerName) encoder.line(`Nama: ${transaction.customerName}`);
+    if (transaction.tableNumber) encoder.line(`Meja: ${transaction.tableNumber}`);
+    if (transaction.date) {
+      const date = new Date(transaction.date).toLocaleString('id-ID');
+      encoder.line(`Waktu: ${date}`);
+    }
+    
+    encoder.separator();
+
+    // Items
     transaction.items.forEach((item: any) => {
       encoder.line(item.name);
       const priceStr = `${item.quantity} x ${item.price.toLocaleString()}`;
@@ -140,7 +157,10 @@ export async function printReceipt(transaction: any, device?: BluetoothDevice, s
     if (transaction.cash) encoder.line(`TUNAI: ${transaction.cash.toLocaleString()}`);
     if (transaction.change) encoder.line(`KEMBALI: ${transaction.change.toLocaleString()}`);
     
-    encoder.feed(4);
+    encoder.separator()
+      .alignCenter()
+      .line('Terima kasih atas kunjungan anda')
+      .feed(4);
 
     const data = encoder.encode();
     const CHUNK_SIZE = 20;
