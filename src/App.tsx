@@ -1842,12 +1842,7 @@ export default function App() {
               className="relative w-full max-w-sm bg-white rounded-[2.5rem] overflow-hidden shadow-2xl"
             >
               <div className="p-8">
-                <div className="text-center mb-6">
-                  <div className="w-16 h-16 bg-cafe-cream rounded-full flex items-center justify-center mx-auto mb-4 text-cafe-olive">
-                    <Printer size={32} />
-                  </div>
-                  <h3 className="text-xl font-serif font-bold text-cafe-ink">Cetak Struk?</h3>
-                  <p className="text-xs text-cafe-olive/60 mt-1">Pesanan #{lastOrder.queue_number} berhasil diproses</p>
+                <div className="text-center mb-4">
                   {!navigator.bluetooth && (
                     <div className="mt-2 p-2 bg-amber-50 border border-amber-100 rounded-xl flex items-center gap-2 text-amber-700">
                       <AlertCircle size={12} />
@@ -1864,7 +1859,7 @@ export default function App() {
                     <div className="flex justify-between"><span>Antrian:</span><span>#{lastOrder.queue_number}</span></div>
                     <div className="flex justify-between"><span>Nama:</span><span>{lastOrder.customer_name || '-'}</span></div>
                     <div className="flex justify-between"><span>Meja:</span><span>{lastOrder.table_number || '-'}</span></div>
-                    <div className="flex justify-between"><span>Waktu:</span><span>{new Date(lastOrder.created_at).toLocaleString('id-ID')}</span></div>
+                    <div className="flex justify-between"><span>Waktu:</span><span>{lastOrder.created_at}</span></div>
                   </div>
                   <div className="border-t border-dashed border-cafe-ink/20 pt-2 space-y-1">
                     {JSON.parse(lastOrder.items_json || '[]').map((item: any, i: number) => (
