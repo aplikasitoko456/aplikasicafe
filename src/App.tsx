@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import { cn } from './lib/utils';
 import { CurrencyInput } from './components/ui/CurrencyInput';
-import { printReceipt } from './lib/bluetooth';
+import { printReceipt, selectPrinter } from './lib/bluetooth';
 import { 
   Item, 
   JournalEntry, 
@@ -141,19 +141,25 @@ export default function App() {
   const [cashAmount, setCashAmount] = useState(0);
   const [isPrintingBluetooth, setIsPrintingBluetooth] = useState(false);
   const [bluetoothError, setBluetoothError] = useState<string | null>(null);
+  const [selectedBluetoothDevice, setSelectedBluetoothDevice] = useState<BluetoothDevice | null>(null);
 
-  const handleBluetoothPrint = async () => {
-    console.log('handleBluetoothPrint called');
-    if (!lastOrder) {
-      console.error('No lastOrder found');
-      return;
+  const handleSelectPrinter = async () => {
+    setBluetoothError(null);
+    try {
+      const device = await selectPrinter();
+      setSelectedBluetoothDevice(device);
+    } catch (error: any) {
+      setBluetoothError(error.message || 'Gagal memilih printer.');
     }
+  };
+
+  const handlePrintReceipt = async () => {
+    if (!lastOrder) return;
     
     setIsPrintingBluetooth(true);
     setBluetoothError(null);
     
     try {
-      console.log('Parsing items_json...');
       const items = JSON.parse(lastOrder.items_json || '[]');
       const transaction = {
         id: lastOrder.id,
@@ -168,9 +174,7 @@ export default function App() {
         change: lastOrder.change_amount || 0
       };
       
-      console.log('Calling printReceipt...');
-      await printReceipt(transaction, "CAFE BAJIBUN");
-      console.log('Print successful');
+      await printReceipt(transaction, selectedBluetoothDevice || undefined, "CAFE BAJIBUN");
     } catch (error: any) {
       console.error('Bluetooth Print Error:', error);
       setBluetoothError(error.message || 'Gagal mencetak struk.');
@@ -1888,35 +1892,26 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="mb-6 p-4 bg-blue-50 rounded-2xl border border-blue-100 flex gap-3 items-start">
-                  <AlertCircle size={16} className="text-blue-500 shrink-0 mt-0.5" />
-                  <div className="text-[10px] text-blue-700 leading-relaxed">
-                    <p className="font-bold mb-1">Tips Printer Bluetooth:</p>
-                    <p>1. Jika printer tidak muncul, buka aplikasi di <b>Tab Baru</b> browser.</p>
-                    <p>2. Pastikan Bluetooth & Lokasi aktif.</p>
-                    <p>3. Gunakan browser Google Chrome.</p>
-                  </div>
-                </div>
-
                 <div className="flex flex-col gap-2 no-print">
                   <div className="flex gap-2">
                     <button 
-                      onClick={handleBluetoothPrint}
+                      onClick={handleSelectPrinter}
+                      className="flex-1 bg-white border-2 border-blue-600 text-blue-600 py-4 rounded-2xl font-black text-xs flex items-center justify-center gap-2 hover:bg-blue-50 transition-all"
+                    >
+                      <Bluetooth size={18} />
+                      {selectedBluetoothDevice ? 'GANTI PRINTER' : 'PILIH PRINTER'}
+                    </button>
+                    <button 
+                      onClick={handlePrintReceipt}
                       disabled={isPrintingBluetooth}
                       className="flex-1 bg-blue-600 text-white py-4 rounded-2xl font-black text-xs flex items-center justify-center gap-2 hover:bg-blue-700 transition-all shadow-lg disabled:opacity-50"
                     >
                       {isPrintingBluetooth ? (
                         <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                       ) : (
-                        <Bluetooth size={18} />
+                        <Printer size={18} />
                       )}
-                      PILIH PRINTER
-                    </button>
-                    <button 
-                      onClick={() => window.print()}
-                      className="flex-1 bg-cafe-olive text-white py-4 rounded-2xl font-black text-xs flex items-center justify-center gap-2 hover:bg-cafe-ink transition-all shadow-lg"
-                    >
-                      <Printer size={18} /> PDF
+                      CETAK STRUK
                     </button>
                   </div>
                   <button 
