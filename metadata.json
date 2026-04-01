@@ -1,5 +1,5 @@
 {
   "name": "Cafe Bajibun",
   "description": "Sistem Manajemen & Akuntansi Cafe Bajibun - Jalan Andi Tonro Gowa",
-  "requestFramePermissions": []
+  "requestFramePermissions": ["bluetooth", "geolocation"]
 }
