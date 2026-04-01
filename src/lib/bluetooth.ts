@@ -60,7 +60,29 @@ export class EscPosEncoder {
 const PRINT_SERVICE_UUID = '000018f0-0000-1000-8000-00805f9b34fb';
 const PRINT_CHARACTERISTIC_UUID = '00002af1-0000-1000-8000-00805f9b34fb';
 
-export async function printReceipt(transaction: any, storeName: string = 'CAFE BAJIBUN') {
+export async function selectPrinter(): Promise<BluetoothDevice> {
+  if (!navigator.bluetooth) {
+    throw new Error('Web Bluetooth tidak didukung di browser ini. Gunakan Chrome di Android/Desktop.');
+  }
+
+  try {
+    console.log('Requesting new Bluetooth device...');
+    const device = await navigator.bluetooth.requestDevice({
+      acceptAllDevices: true,
+      optionalServices: [PRINT_SERVICE_UUID]
+    });
+    console.log('Device selected:', device.name);
+    return device;
+  } catch (error: any) {
+    const message = error.message || '';
+    if (error.name === 'NotFoundError' || message.includes('cancelled')) {
+      throw new Error('Pencarian printer dibatalkan.');
+    }
+    throw new Error(message || 'Gagal memilih printer.');
+  }
+}
+
+export async function printReceipt(transaction: any, device?: BluetoothDevice, storeName: string = 'CAFE BAJIBUN') {
   console.log('Starting printReceipt...', transaction);
   
   if (!navigator.bluetooth) {
@@ -69,30 +91,25 @@ export async function printReceipt(transaction: any, storeName: string = 'CAFE B
   }
 
   try {
-    let device: BluetoothDevice | undefined;
+    let targetDevice = device;
 
-    // 1. Cari perangkat yang sudah pernah diberi izin (Paired di browser)
-    if (navigator.bluetooth.getDevices) {
+    // 1. Jika device tidak diberikan, cari perangkat yang sudah pernah diberi izin (Paired di browser)
+    if (!targetDevice && navigator.bluetooth.getDevices) {
       console.log('Checking for paired devices...');
       const pairedDevices = await navigator.bluetooth.getDevices();
       console.log('Paired devices found:', pairedDevices.length);
-      device = pairedDevices.find(d => 
+      targetDevice = pairedDevices.find(d => 
         /printer|mtp|pos|thermal|58mm/i.test(d.name || '')
       );
-      if (device) console.log('Found matching paired device:', device.name);
+      if (targetDevice) console.log('Found matching paired device:', targetDevice.name);
     }
 
-    // 2. Jika tidak ada yang paired, minta izin baru
-    if (!device) {
-      console.log('Requesting new Bluetooth device...');
-      device = await navigator.bluetooth.requestDevice({
-        acceptAllDevices: true,
-        optionalServices: [PRINT_SERVICE_UUID]
-      });
-      console.log('Device selected:', device.name);
+    // 2. Jika masih tidak ada device, minta izin baru
+    if (!targetDevice) {
+      targetDevice = await selectPrinter();
     }
 
-    const server = await device.gatt?.connect();
+    const server = await targetDevice.gatt?.connect();
     if (!server) throw new Error('Gagal terhubung ke printer.');
 
     const service = await server.getPrimaryService(PRINT_SERVICE_UUID);
@@ -118,10 +135,10 @@ export async function printReceipt(transaction: any, storeName: string = 'CAFE B
 
     encoder.separator()
       .alignRight()
-      .line(`TOTAL: ${transaction.total.toLocaleString()}`)
-      // Cash and change might be optional if not provided
-      if (transaction.cash) encoder.line(`TUNAI: ${transaction.cash.toLocaleString()}`);
-      if (transaction.change) encoder.line(`KEMBALI: ${transaction.change.toLocaleString()}`);
+      .line(`TOTAL: ${transaction.total.toLocaleString()}`);
+      
+    if (transaction.cash) encoder.line(`TUNAI: ${transaction.cash.toLocaleString()}`);
+    if (transaction.change) encoder.line(`KEMBALI: ${transaction.change.toLocaleString()}`);
     
     encoder.feed(4);
 
