@@ -163,6 +163,9 @@ export default function App() {
       const items = JSON.parse(lastOrder.items_json || '[]');
       const transaction = {
         id: lastOrder.id,
+        queueNumber: lastOrder.queue_number,
+        customerName: lastOrder.customer_name,
+        tableNumber: lastOrder.table_number,
         items: items.map((item: any) => ({
           name: item.name,
           quantity: item.quantity,
