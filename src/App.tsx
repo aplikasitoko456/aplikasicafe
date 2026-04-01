@@ -25,10 +25,12 @@ import {
   Printer,
   Clock,
   CheckCircle2,
-  Search
+  Search,
+  Bluetooth
 } from 'lucide-react';
 import { cn } from './lib/utils';
 import { CurrencyInput } from './components/ui/CurrencyInput';
+import { printReceipt } from './lib/bluetooth';
 import { 
   Item, 
   JournalEntry, 
@@ -136,6 +138,46 @@ export default function App() {
   const [showPrintPopup, setShowPrintPopup] = useState(false);
   const [popupQty, setPopupQty] = useState(1);
   const [popupNote, setPopupNote] = useState('');
+  const [cashAmount, setCashAmount] = useState(0);
+  const [isPrintingBluetooth, setIsPrintingBluetooth] = useState(false);
+  const [bluetoothError, setBluetoothError] = useState<string | null>(null);
+
+  const handleBluetoothPrint = async () => {
+    console.log('handleBluetoothPrint called');
+    if (!lastOrder) {
+      console.error('No lastOrder found');
+      return;
+    }
+    
+    setIsPrintingBluetooth(true);
+    setBluetoothError(null);
+    
+    try {
+      console.log('Parsing items_json...');
+      const items = JSON.parse(lastOrder.items_json || '[]');
+      const transaction = {
+        id: lastOrder.id,
+        items: items.map((item: any) => ({
+          name: item.name,
+          quantity: item.quantity,
+          price: item.price
+        })),
+        total: lastOrder.total_amount,
+        date: lastOrder.created_at,
+        cash: lastOrder.cash_amount || 0,
+        change: lastOrder.change_amount || 0
+      };
+      
+      console.log('Calling printReceipt...');
+      await printReceipt(transaction, "CAFE BAJIBUN");
+      console.log('Print successful');
+    } catch (error: any) {
+      console.error('Bluetooth Print Error:', error);
+      setBluetoothError(error.message || 'Gagal mencetak struk.');
+    } finally {
+      setIsPrintingBluetooth(false);
+    }
+  };
 
   // Kinerja States
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth() + 1);
@@ -279,6 +321,7 @@ export default function App() {
 
   const handleSale = async () => {
     if (cart.length === 0) return;
+    const change = Math.max(0, cashAmount - cartTotal);
     const res = await fetch('/api/sale', { 
       method: 'POST', 
       headers: { 'Content-Type': 'application/json' }, 
@@ -286,7 +329,9 @@ export default function App() {
         cart, 
         customer_name: customerName, 
         table_number: tableNumber,
-        date: getLocalDateTime()
+        date: getLocalDateTime(),
+        cash_amount: cashAmount,
+        change_amount: change
       }) 
     });
     if (res.ok) { 
@@ -295,6 +340,7 @@ export default function App() {
       setCart([]); 
       setCustomerName('');
       setTableNumber('');
+      setCashAmount(0);
       fetchData(); 
       fetchTurnover();
       setShowPrintPopup(true);
@@ -592,6 +638,23 @@ export default function App() {
                       <span className="text-sm font-bold text-cafe-olive/60">Total Bayar</span>
                       <span className="text-2xl font-black text-cafe-accent">{formatCurrency(cartTotal)}</span>
                     </div>
+
+                    <div className="space-y-1 mb-4">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-cafe-olive/50">Tunai (Bayar)</label>
+                      <CurrencyInput 
+                        value={cashAmount} 
+                        onChange={setCashAmount}
+                        className="text-lg font-black text-cafe-olive"
+                      />
+                    </div>
+
+                    {cashAmount > 0 && (
+                      <div className="flex justify-between items-center mb-4 p-3 bg-cafe-olive/5 rounded-xl border border-cafe-olive/10">
+                        <span className="text-xs font-bold text-cafe-olive/60 uppercase tracking-wider">Kembalian</span>
+                        <span className="text-lg font-black text-cafe-olive">{formatCurrency(Math.max(0, cashAmount - cartTotal))}</span>
+                      </div>
+                    )}
+
                     <button 
                       onClick={handleSale}
                       className="w-full bg-cafe-olive text-white py-4 rounded-2xl font-black text-base hover:bg-cafe-ink transition-all shadow-lg"
@@ -1778,6 +1841,12 @@ export default function App() {
                   </div>
                   <h3 className="text-xl font-serif font-bold text-cafe-ink">Cetak Struk?</h3>
                   <p className="text-xs text-cafe-olive/60 mt-1">Pesanan #{lastOrder.queue_number} berhasil diproses</p>
+                  {!navigator.bluetooth && (
+                    <div className="mt-2 p-2 bg-amber-50 border border-amber-100 rounded-xl flex items-center gap-2 text-amber-700">
+                      <AlertCircle size={12} />
+                      <p className="text-[9px] font-bold">Browser ini tidak mendukung Bluetooth.</p>
+                    </div>
+                  )}
                 </div>
 
                 {/* Receipt Preview */}
@@ -1791,7 +1860,7 @@ export default function App() {
                     <div className="flex justify-between"><span>Waktu:</span><span>{new Date(lastOrder.created_at).toLocaleString('id-ID')}</span></div>
                   </div>
                   <div className="border-t border-dashed border-cafe-ink/20 pt-2 space-y-1">
-                    {JSON.parse(lastOrder.items_json).map((item: any, i: number) => (
+                    {JSON.parse(lastOrder.items_json || '[]').map((item: any, i: number) => (
                       <div key={i} className="flex justify-between">
                         <span>{item.name} x{item.quantity}</span>
                         <span>{formatCurrency(item.price * item.quantity)}</span>
@@ -1802,6 +1871,18 @@ export default function App() {
                     <span>TOTAL</span>
                     <span>{formatCurrency(lastOrder.total_amount)}</span>
                   </div>
+                  {lastOrder.cash_amount > 0 && (
+                    <div className="flex justify-between opacity-80">
+                      <span>TUNAI</span>
+                      <span>{formatCurrency(lastOrder.cash_amount)}</span>
+                    </div>
+                  )}
+                  {lastOrder.change_amount > 0 && (
+                    <div className="flex justify-between opacity-80">
+                      <span>KEMBALI</span>
+                      <span>{formatCurrency(lastOrder.change_amount)}</span>
+                    </div>
+                  )}
                   <div className="border-t border-dashed border-cafe-ink/20 pt-4 text-center italic opacity-60">
                     Terima kasih atas kunjungan anda
                   </div>
@@ -1811,27 +1892,47 @@ export default function App() {
                   <AlertCircle size={16} className="text-blue-500 shrink-0 mt-0.5" />
                   <div className="text-[10px] text-blue-700 leading-relaxed">
                     <p className="font-bold mb-1">Tips Printer Bluetooth:</p>
-                    <p>Jika printer tidak muncul, pastikan anda sudah menginstal aplikasi <b>"Bluetooth Print"</b> atau <b>"RawBT"</b> dari Play Store dan mengaktifkan <b>Print Service</b>-nya.</p>
+                    <p>1. Jika printer tidak muncul, buka aplikasi di <b>Tab Baru</b> browser.</p>
+                    <p>2. Pastikan Bluetooth & Lokasi aktif.</p>
+                    <p>3. Gunakan browser Google Chrome.</p>
                   </div>
                 </div>
 
-                <div className="flex gap-3">
+                <div className="flex flex-col gap-2 no-print">
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={handleBluetoothPrint}
+                      disabled={isPrintingBluetooth}
+                      className="flex-1 bg-blue-600 text-white py-4 rounded-2xl font-black text-xs flex items-center justify-center gap-2 hover:bg-blue-700 transition-all shadow-lg disabled:opacity-50"
+                    >
+                      {isPrintingBluetooth ? (
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      ) : (
+                        <Bluetooth size={18} />
+                      )}
+                      PILIH PRINTER
+                    </button>
+                    <button 
+                      onClick={() => window.print()}
+                      className="flex-1 bg-cafe-olive text-white py-4 rounded-2xl font-black text-xs flex items-center justify-center gap-2 hover:bg-cafe-ink transition-all shadow-lg"
+                    >
+                      <Printer size={18} /> PDF
+                    </button>
+                  </div>
                   <button 
                     onClick={() => setShowPrintPopup(false)} 
-                    className="flex-1 py-4 rounded-2xl font-bold text-cafe-olive/60 hover:bg-cafe-cream transition-all"
+                    className="w-full py-3 rounded-2xl font-bold text-cafe-olive/40 text-xs"
                   >
                     Tutup
                   </button>
-                  <button 
-                    onClick={() => {
-                      window.print();
-                      setShowPrintPopup(false);
-                    }} 
-                    className="flex-[2] bg-cafe-olive text-white py-4 rounded-2xl font-black shadow-lg flex items-center justify-center gap-2"
-                  >
-                    <Printer size={18} /> CETAK STRUK
-                  </button>
                 </div>
+
+                {bluetoothError && (
+                  <div className="mt-4 p-3 bg-red-50 border border-red-100 rounded-xl flex items-start gap-2 text-red-600 no-print">
+                    <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                    <p className="text-[10px] font-bold">{bluetoothError}</p>
+                  </div>
+                )}
               </div>
             </motion.div>
           </div>
