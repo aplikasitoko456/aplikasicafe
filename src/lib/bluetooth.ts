@@ -135,8 +135,9 @@ export async function printReceipt(
     if (transaction.customerName) encoder.line(`Nama: ${transaction.customerName}`);
     if (transaction.tableNumber) encoder.line(`Meja: ${transaction.tableNumber}`);
     if (transaction.date) {
-      const date = new Date(transaction.date).toLocaleString('id-ID');
-      encoder.line(`Waktu: ${date}`);
+      // Use the string directly from the database to avoid timezone conversion issues
+      // The string is already in 'YYYY-MM-DD HH24:MI:SS' format from the backend
+      encoder.line(`Waktu: ${transaction.date}`);
     }
     
     encoder.separator();
