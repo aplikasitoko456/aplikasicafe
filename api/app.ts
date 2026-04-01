@@ -49,6 +49,8 @@ async function initDb() {
       await sqlClient`ALTER TABLE orders ADD COLUMN IF NOT EXISTS table_number TEXT`;
       await sqlClient`ALTER TABLE orders ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'processing'`;
       await sqlClient`ALTER TABLE orders ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`;
+      await sqlClient`ALTER TABLE orders ADD COLUMN IF NOT EXISTS cash_amount NUMERIC`;
+      await sqlClient`ALTER TABLE orders ADD COLUMN IF NOT EXISTS change_amount NUMERIC`;
     } catch (e) {
       console.log("Migration error for orders table:", e);
     }
@@ -137,7 +139,7 @@ export async function setupApp() {
   app.get("/api/journal", async (req, res) => res.json(await getSql()`SELECT id, transaction_id, account_name, description, debit, credit, TO_CHAR(date, 'YYYY-MM-DD HH24:MI:SS') as date FROM journal_entries ORDER BY date DESC`));
 
   app.post("/api/sale", async (req, res) => {
-    const { cart, date, customer_name, table_number } = req.body; // cart: [{ item_id, quantity, note, price }]
+    const { cart, date, customer_name, table_number, cash_amount, change_amount } = req.body; // cart: [{ item_id, quantity, note, price }]
     if (!cart || cart.length === 0) return res.status(400).json({ error: "Cart is empty" });
 
     const transactionDate = date || new Date().toISOString();
@@ -151,7 +153,7 @@ export async function setupApp() {
 
     const tid = `T-SALE-${Date.now()}`;
 
-    const order = await getSql()`INSERT INTO orders (queue_number, total_amount, items_json, customer_name, table_number, status, created_at) VALUES (${queueNum}, ${totalSale}, ${JSON.stringify(cart)}, ${customer_name || null}, ${table_number || null}, 'processing', ${transactionDate}) RETURNING *`;
+    const order = await getSql()`INSERT INTO orders (queue_number, total_amount, items_json, customer_name, table_number, status, created_at, cash_amount, change_amount) VALUES (${queueNum}, ${totalSale}, ${JSON.stringify(cart)}, ${customer_name || null}, ${table_number || null}, 'processing', ${transactionDate}, ${cash_amount || 0}, ${change_amount || 0}) RETURNING *`;
     await getSql()`INSERT INTO journal_entries (transaction_id, account_name, description, debit, credit, date) VALUES (${tid}, 'Kas', ${`Penjualan: ${itemDescriptions}`}, ${totalSale}, 0, ${transactionDate})`;
     await getSql()`INSERT INTO journal_entries (transaction_id, account_name, description, debit, credit, date) VALUES (${tid}, 'Penjualan', ${`Penjualan: ${itemDescriptions}`}, 0, ${totalSale}, ${transactionDate})`;
 
@@ -159,7 +161,7 @@ export async function setupApp() {
   });
 
   app.get("/api/orders", async (req, res) => {
-    res.json(await getSql()`SELECT id, queue_number, total_amount, items_json, customer_name, table_number, status, TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') as created_at FROM orders ORDER BY created_at DESC`);
+    res.json(await getSql()`SELECT id, queue_number, total_amount, items_json, customer_name, table_number, status, cash_amount, change_amount, TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') as created_at FROM orders ORDER BY created_at DESC`);
   });
 
   app.patch("/api/orders/:id/status", async (req, res) => {
