@@ -178,3 +178,4 @@ export async function printReceipt(
     throw new Error(message || 'Gagal mencetak struk.');
   }
 }
+
