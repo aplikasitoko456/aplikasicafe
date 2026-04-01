@@ -160,7 +160,7 @@ export async function printReceipt(
     encoder.separator()
       .alignCenter()
       .line('Terima kasih atas kunjungan anda')
-      .feed(4);
+      .feed(6);
 
     const data = encoder.encode();
     const CHUNK_SIZE = 20;
@@ -178,4 +178,3 @@ export async function printReceipt(
     throw new Error(message || 'Gagal mencetak struk.');
   }
 }
-
